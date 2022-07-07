@@ -26,14 +26,6 @@ import tensorflow as tf
 
 class DataGenerator:
     def __init__(self, image_paths, input_shape, batch_size, output_node_size):
-        self.generator_flow = GeneratorFlow(image_paths, input_shape, batch_size, output_node_size)
-
-    def flow(self):
-        return self.generator_flow
-
-
-class GeneratorFlow(tf.keras.utils.Sequence):
-    def __init__(self, image_paths, input_shape, batch_size, output_node_size):
         self.image_paths = image_paths
         self.input_shape = input_shape
         self.batch_size = batch_size
@@ -46,15 +38,15 @@ class GeneratorFlow(tf.keras.utils.Sequence):
         batch_y = []
         fs = []
         for i in range(self.batch_size):
-            fs.append(self.pool.submit(self.load_img, self.get_next_image_path()))
+            fs.append(self.pool.submit(self.load_img, self.get_next_image_path(), self.input_shape[-1]))
         for f in fs:
-            cur_img_path, x = f.result()
+            x, path = f.result()
             x = self.resize(x, (self.input_shape[1], self.input_shape[0]))
             x = np.asarray(x).reshape(self.input_shape).astype('float32') / 255.0
             batch_x.append(x)
 
             y = []
-            label_path = f'{cur_img_path[:-4]}.txt'
+            label_path = f'{path[:-4]}.txt'
             with open(label_path, 'rt') as file:
                 lines = file.readlines()
             for line in lines:
@@ -69,7 +61,8 @@ class GeneratorFlow(tf.keras.utils.Sequence):
     def __len__(self):
         return int(np.floor(len(self.image_paths) / self.batch_size))
 
-    def resize(self, img, size):
+    @staticmethod
+    def resize(img, size):
         if size[0] > img.shape[1] or size[1] > img.shape[0]:
             return cv2.resize(img, size, interpolation=cv2.INTER_LINEAR)
         else:
@@ -83,8 +76,9 @@ class GeneratorFlow(tf.keras.utils.Sequence):
             self.image_index = 0
         return path
 
-    def load_img(self, path):
-        img = cv2.imdecode(np.fromfile(path, dtype=np.uint8), cv2.IMREAD_GRAYSCALE if self.input_shape[2] == 1 else cv2.IMREAD_COLOR)
-        if self.input_shape[2] == 3:
+    @staticmethod
+    def load_img(path, channels):
+        img = cv2.imdecode(np.fromfile(path, dtype=np.uint8), cv2.IMREAD_GRAYSCALE if channels == 1 else cv2.IMREAD_COLOR)
+        if channels == 3:
             img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)  # rb swap
-        return path, img
+        return img, path

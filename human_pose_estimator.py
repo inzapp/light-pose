@@ -21,8 +21,10 @@ import os
 import random
 from glob import glob
 from time import time
+from enum import Enum, auto
 
 import cv2
+import numpy as np
 import tensorflow as tf
 
 from tqdm import tqdm
@@ -31,7 +33,25 @@ from generator import DataGenerator
 
 
 os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true'
-live_view_previous_time = time()
+
+
+class Limb(Enum):
+    HEAD = 0
+    NECK = auto()
+    RIGHT_SHOULDER = auto()
+    RIGHT_ELBOW = auto()
+    RIGHT_WRIST = auto()
+    LEFT_SHOULDER = auto()
+    LEFT_ELBOW = auto()
+    LEFT_WRIST = auto()
+    RIGHT_HIP = auto()
+    RIGHT_KNEE = auto()
+    RIGHT_ANKLE = auto()
+    LEFT_HIP = auto()
+    LEFT_KNEE = auto()
+    LEFT_ANKLE = auto()
+    CHEST = auto()
+    BACK = auto()
 
 
 class HumanPoseEstimator:
@@ -46,6 +66,7 @@ class HumanPoseEstimator:
             training_view=False,
             pretrained_model_path='',
             validation_image_path='',
+            confidence_threshold=0.25,
             validation_split=0.2):
         self.train_image_path = train_image_path
         self.validation_image_path = validation_image_path
@@ -56,10 +77,13 @@ class HumanPoseEstimator:
         self.batch_size = batch_size
         self.iterations = iterations
         self.training_view_flag = training_view
+        self.confidence_threshold = confidence_threshold
         self.img_type = cv2.IMREAD_COLOR
+        self.live_view_time = time()
         if input_shape[-1] == 1:
             self.img_type = cv2.IMREAD_GRAYSCALE
 
+        self.limb_size = 16
         self.output_node_size = 16 * 3
         if pretrained_model_path == '':
             self.model = get_model(self.input_shape, output_node_size=self.output_node_size)
@@ -123,15 +147,15 @@ class HumanPoseEstimator:
         min_val_loss = 999999999.0
         os.makedirs('checkpoints', exist_ok=True)
         while True:
-            for x, y_true in self.train_data_generator.flow():
+            for x, y_true in self.train_data_generator:
                 loss = self.compute_gradient(self.model, optimizer, x, y_true)
                 iteration_count += 1
                 if self.training_view_flag:
-                    pass
+                    self.training_view_function()
                 print(f'\r[iteration count : {iteration_count:6d}] loss => {loss:.4f}', end='')
                 if iteration_count % 10000 == 0:
                     print()
-                    # val_loss = self.evaluate(self.model, self.validation_data_generator.flow(), loss_fn)
+                    # val_loss = self.evaluate(self.model, self.validation_data_generator, loss_fn)
                     val_loss = 0.0
                     print(f'val_loss : {val_loss:.4f}')
                     if val_loss < min_val_loss:
@@ -146,3 +170,69 @@ class HumanPoseEstimator:
     def predict_validation_images(self):
         for img_path in self.validation_image_paths:
             pass
+
+    @tf.function
+    def graph_forward(self, model, x):
+        return model(x, training=False)
+
+    def circle_if_valid(self, img, v):
+        if v[0] > self.confidence_threshold:
+            x = int(v[1] * img.shape[1])
+            y = int(v[2] * img.shape[0])
+            img = cv2.circle(img, (x, y), 6, (128, 255, 128), thickness=-1, lineType=cv2.LINE_AA)
+            img = cv2.circle(img, (x, y), 3, (32, 32, 192), thickness=-1, lineType=cv2.LINE_AA)
+        return img
+
+    def line_if_valid(self, img, p1, p2):
+        if p1[0] > self.confidence_threshold and p2[0] > self.confidence_threshold:
+            x1 = int(p1[1] * img.shape[1])
+            y1 = int(p1[2] * img.shape[0])
+            x2 = int(p2[1] * img.shape[1])
+            y2 = int(p2[2] * img.shape[0])
+            img = cv2.line(img, (x1, y1), (x2, y2), (64, 255, 255), thickness=2, lineType=cv2.LINE_AA)
+        return img
+
+    def draw_skeleton(self, img, y):
+        for v in y:
+            img = self.circle_if_valid(img, v)
+        img = self.line_if_valid(img, y[Limb.HEAD.value], y[Limb.NECK.value])
+
+        img = self.line_if_valid(img, y[Limb.NECK.value], y[Limb.RIGHT_SHOULDER.value])
+        img = self.line_if_valid(img, y[Limb.RIGHT_SHOULDER.value], y[Limb.RIGHT_ELBOW.value])
+        img = self.line_if_valid(img, y[Limb.RIGHT_ELBOW.value], y[Limb.RIGHT_WRIST.value])
+
+        img = self.line_if_valid(img, y[Limb.NECK.value], y[Limb.LEFT_SHOULDER.value])
+        img = self.line_if_valid(img, y[Limb.LEFT_SHOULDER.value], y[Limb.LEFT_ELBOW.value])
+        img = self.line_if_valid(img, y[Limb.LEFT_ELBOW.value], y[Limb.LEFT_WRIST.value])
+
+        img = self.line_if_valid(img, y[Limb.RIGHT_HIP.value], y[Limb.RIGHT_KNEE.value])
+        img = self.line_if_valid(img, y[Limb.RIGHT_KNEE.value], y[Limb.RIGHT_ANKLE.value])
+
+        img = self.line_if_valid(img, y[Limb.LEFT_HIP.value], y[Limb.LEFT_KNEE.value])
+        img = self.line_if_valid(img, y[Limb.LEFT_KNEE.value], y[Limb.LEFT_ANKLE.value])
+
+        img = self.line_if_valid(img, y[Limb.NECK.value], y[Limb.CHEST.value])
+        img = self.line_if_valid(img, y[Limb.CHEST.value], y[Limb.RIGHT_HIP.value])
+        img = self.line_if_valid(img, y[Limb.CHEST.value], y[Limb.LEFT_HIP.value])
+
+        img = self.line_if_valid(img, y[Limb.NECK.value], y[Limb.BACK.value])
+        img = self.line_if_valid(img, y[Limb.BACK.value], y[Limb.RIGHT_HIP.value])
+        img = self.line_if_valid(img, y[Limb.BACK.value], y[Limb.LEFT_HIP.value])
+        return img
+
+    def training_view_function(self):
+        cur_time = time()
+        if cur_time - self.live_view_time < 0.5:
+            return
+        self.live_view_time = cur_time
+        # raw, _ = DataGenerator.load_img(np.random.choice(self.train_image_paths), 3)
+        raw, _ = DataGenerator.load_img(np.random.choice(self.validation_image_paths), 3)
+        if self.input_shape[-1] == 1:
+            img = cv2.cvtColor(raw, cv2.COLOR_RGB2GRAY)
+        else:
+            img = raw
+        x = np.asarray(DataGenerator.resize(img, (self.input_shape[1], self.input_shape[0]))).reshape((1,) + self.input_shape).astype('float32') / 255.0
+        y = np.asarray(self.graph_forward(self.model, x)).reshape((self.limb_size, 3))
+        img = self.draw_skeleton(DataGenerator.resize(raw, (256, 512)), y)
+        cv2.imshow('training view', img)
+        cv2.waitKey(1)
