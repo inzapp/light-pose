@@ -25,9 +25,10 @@ import tensorflow as tf
 
 
 class DataGenerator:
-    def __init__(self, image_paths, input_shape, batch_size, output_node_size):
+    def __init__(self, image_paths, input_shape, output_shape, batch_size, output_node_size):
         self.image_paths = image_paths
         self.input_shape = input_shape
+        self.output_shape = output_shape
         self.batch_size = batch_size
         self.output_node_size = output_node_size
         self.pool = ThreadPoolExecutor(8)
@@ -45,17 +46,23 @@ class DataGenerator:
             x = np.asarray(x).reshape(self.input_shape).astype('float32') / 255.0
             batch_x.append(x)
 
-            y = []
-            label_path = f'{path[:-4]}.txt'
-            with open(label_path, 'rt') as file:
+            output_rows = self.output_shape[0]
+            output_cols = self.output_shape[1]
+            output_channels = self.output_shape[2]
+            y = np.zeros(shape=self.output_shape, dtype=np.float32)
+            with open(f'{path[:-4]}.txt', 'rt') as file:
                 lines = file.readlines()
-            for line in lines:
+            for i, line in enumerate(lines):
                 confidence, x_pos, y_pos = list(map(float, line.split()))
-                y += [confidence, x_pos, y_pos]
+                row = int(y_pos * output_rows)
+                col = int(x_pos * output_cols)
+                y[row][col][i * 3 + 0] = confidence
+                y[row][col][i * 3 + 1] = (x_pos - float(col) / output_cols) / (1.0 / output_cols)
+                y[row][col][i * 3 + 2] = (y_pos - float(row) / output_rows) / (1.0 / output_rows)
             y = np.asarray(y).astype('float32')
             batch_y.append(y)
         batch_x = np.asarray(batch_x).reshape((self.batch_size,) + self.input_shape).astype('float32')
-        batch_y = np.asarray(batch_y).reshape((self.batch_size, self.output_node_size)).astype('float32')
+        batch_y = np.asarray(batch_y).reshape((self.batch_size,) + self.output_shape).astype('float32')
         return batch_x, batch_y
 
     def __len__(self):

@@ -89,6 +89,7 @@ class HumanPoseEstimator:
             self.model.save('model.h5', include_optimizer=False)
         else:
             self.model = tf.keras.models.load_model(pretrained_model_path, compile=False)
+        self.output_shape = self.model.output_shape[1:]
 
         self.train_image_paths = list()
         self.validation_image_paths = list()
@@ -101,11 +102,13 @@ class HumanPoseEstimator:
         self.train_data_generator = DataGenerator(
             image_paths=self.train_image_paths,
             input_shape=self.input_shape,
+            output_shape=self.output_shape,
             batch_size=self.batch_size,
             output_node_size=self.output_node_size)
         self.validation_data_generator = DataGenerator(
             image_paths=self.validation_image_paths,
             input_shape=self.input_shape,
+            output_shape=self.output_shape,
             batch_size=self.batch_size,
             output_node_size=self.output_node_size)
 
@@ -124,7 +127,7 @@ class HumanPoseEstimator:
             filters=filters,
             kernel_size=kernel_size,
             kernel_initializer=kernel_initializer,
-            # kernel_regularizer=tf.keras.regularizers.l2(l2=5e-3),
+            kernel_regularizer=tf.keras.regularizers.l2(l2=5e-4),
             padding='same',
             activation=activation)(x)
 
@@ -133,23 +136,21 @@ class HumanPoseEstimator:
         x = input_layer
         x = self.conv(x,  16, 3, 'he_normal', 2, 'relu')
         x = self.conv(x,  32, 3, 'he_normal', 2, 'relu')
-        x = self.conv(x,  64, 3, 'he_normal', 1, 'relu')
         x = self.conv(x,  64, 3, 'he_normal', 2, 'relu')
-        x = self.conv(x, 128, 3, 'he_normal', 1, 'relu')
         x = self.conv(x, 128, 3, 'he_normal', 2, 'relu')
-        x = self.conv(x, 256, 3, 'he_normal', 1, 'relu')
-        x = self.conv(x, 256, 3, 'he_normal', 2, 'relu')
+        # x = self.conv(x, 256, 3, 'he_normal', 2, 'relu')
         x = self.conv(x, 512, 3, 'he_normal', 1, 'relu')
+        x = self.conv(x, output_node_size, 1, 'glorot_normal', 1, 'sigmoid')
         # x = self.conv(x, 512, 1, 'he_normal', 1, 'relu')
         # x = self.conv(x, 512, 1, 'he_normal', 1, 'relu')
         # x = self.conv(x, output_node_size, 1, 'glorot_normal', 1, 'sigmoid')
-        x = tf.keras.layers.GlobalAveragePooling2D(name='output')(x)
+        # x = tf.keras.layers.GlobalAveragePooling2D(name='output')(x)
 
         # x = tf.keras.layers.Flatten()(x)
         # x = tf.keras.layers.Dropout(rate=0.5)(x)
-        x = tf.keras.layers.Dense(units=256, kernel_initializer='he_normal', activation='relu')(x)
-        x = tf.keras.layers.Dense(units=256, kernel_initializer='he_normal', activation='relu')(x)
-        x = tf.keras.layers.Dense(units=output_node_size, kernel_initializer='glorot_normal', activation='sigmoid')(x)
+        # x = tf.keras.layers.Dense(units=256, kernel_initializer='he_normal', activation='relu')(x)
+        # x = tf.keras.layers.Dense(units=256, kernel_initializer='he_normal', activation='relu')(x)
+        # x = tf.keras.layers.Dense(units=output_node_size, kernel_initializer='glorot_normal', activation='sigmoid')(x)
         return tf.keras.models.Model(input_layer, x)
 
     def evaluate(self, model, generator_flow, loss_fn):
@@ -159,11 +160,35 @@ class HumanPoseEstimator:
             loss_sum += tf.reduce_mean(np.square(batch_y - y_pred))
         return loss_sum / tf.cast(len(generator_flow), dtype=tf.float32) 
 
+    # @tf.function
+    # def compute_gradient(self, model, optimizer, x, y_true, lr):
+    #     with tf.GradientTape() as tape:
+    #         y_pred = model(x, training=True)
+    #         loss = tf.reduce_mean(tf.square(y_true - y_pred))
+    #         gradients = tape.gradient(loss * lr, model.trainable_variables)
+    #     optimizer.apply_gradients(zip(gradients, model.trainable_variables))
+    #     return loss
+
     @tf.function
     def compute_gradient(self, model, optimizer, x, y_true, lr):
         with tf.GradientTape() as tape:
             y_pred = model(x, training=True)
-            loss = tf.reduce_mean(tf.square(y_true - y_pred))
+            confidence_loss, regression_loss = 0.0, 0.0
+            confidence_index = tf.constant(0, dtype=tf.dtypes.int32)
+            channel_size = tf.cast(tf.shape(y_true)[-1], dtype=tf.dtypes.int32)
+            while tf.constant(True, dtype=tf.dtypes.bool):
+                confidence_true = y_true[:, :, :, confidence_index]
+                confidence_pred = y_pred[:, :, :, confidence_index]
+                confidence_loss += tf.reduce_sum(tf.reduce_mean(tf.keras.backend.binary_crossentropy(confidence_true, confidence_pred), axis=0))
+
+                regression_true = y_true[:, :, :, confidence_index + 1] * confidence_true
+                regression_pred = y_pred[:, :, :, confidence_index + 2] * confidence_true
+                regression_loss += tf.reduce_sum(tf.reduce_mean(tf.square(regression_true - regression_pred), axis=0))
+
+                confidence_index = tf.add(confidence_index, tf.constant(3, dtype=tf.dtypes.int32))
+                if tf.greater_equal(confidence_index, channel_size):
+                    break
+            loss = confidence_loss + regression_loss
             gradients = tape.gradient(loss * lr, model.trainable_variables)
         optimizer.apply_gradients(zip(gradients, model.trainable_variables))
         return loss
@@ -263,15 +288,32 @@ class HumanPoseEstimator:
             img = self.circle_if_valid(img, v)
         return img
 
-    def predict(self, color_img):
+    def post_process(self, y):
+        res = []
+        rows, cols = self.output_shape[:2]
+        for limb_index in range(self.limb_size):
+            max_val, x_pos, y_pos = 0.0, 0.0, 0.0
+            for i in range(rows):
+                for j in range(cols):
+                    if y[i][j][limb_index * 3] > max_val:
+                        max_val = y[i][j][limb_index * 3 + 0]
+                        x_pos   = y[i][j][limb_index * 3 + 1]
+                        y_pos   = y[i][j][limb_index * 3 + 2]
+                        x_pos = (j + x_pos) / float(cols)
+                        y_pos = (i + y_pos) / float(rows)
+            res += [max_val, x_pos, y_pos]
+        return np.asarray(res).reshape((self.limb_size, 3))
+
+    def predict(self, color_img, view_size=(256, 512)):
         raw = color_img
         if self.input_shape[-1] == 1:
             img = cv2.cvtColor(color_img, cv2.COLOR_RGB2GRAY)
         else:
             img = color_img
         x = np.asarray(DataGenerator.resize(img, (self.input_shape[1], self.input_shape[0]))).reshape((1,) + self.input_shape).astype('float32') / 255.0
-        y = np.asarray(self.graph_forward(self.model, x)).reshape((self.limb_size, 3))
-        img = self.draw_skeleton(DataGenerator.resize(cv2.cvtColor(raw, cv2.COLOR_RGB2BGR), (256, 512)), y)
+        y = np.asarray(self.graph_forward(self.model, x)).reshape(self.output_shape)
+        y = self.post_process(y)
+        img = self.draw_skeleton(DataGenerator.resize(cv2.cvtColor(raw, cv2.COLOR_RGB2BGR), view_size), y)
         return img
 
     def training_view_function(self):
