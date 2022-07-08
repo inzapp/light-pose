@@ -1,9 +1,9 @@
 """
 Authors : inzapp
 
-Github url : https://github.com/inzapp/sigmoid-classifier
+Github url : https://github.com/inzapp/human-pose-estimator
 
-Copyright 2021 inzapp Authors. All Rights Reserved.
+Copyright 2022 inzapp Authors. All Rights Reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License"),
 you may not use this file except in compliance with the License.

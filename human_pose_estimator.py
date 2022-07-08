@@ -1,7 +1,7 @@
 """
 Authors : inzapp
 
-Github url : https://github.com/inzapp/sigmoid-classifier
+Github url : https://github.com/inzapp/human-pose-estimator
 
 Copyright 2021 inzapp Authors. All Rights Reserved.
 
@@ -28,7 +28,6 @@ import numpy as np
 import tensorflow as tf
 
 from tqdm import tqdm
-from model import get_model
 from generator import DataGenerator
 
 
@@ -84,9 +83,10 @@ class HumanPoseEstimator:
             self.img_type = cv2.IMREAD_GRAYSCALE
 
         self.limb_size = 16
-        self.output_node_size = 16 * 3
+        self.output_node_size = self.limb_size * 3
         if pretrained_model_path == '':
-            self.model = get_model(self.input_shape, output_node_size=self.output_node_size)
+            self.model = self.get_model(self.input_shape, output_node_size=self.output_node_size)
+            self.model.save('model.h5', include_optimizer=False)
         else:
             self.model = tf.keras.models.load_model(pretrained_model_path, compile=False)
 
@@ -118,6 +118,30 @@ class HumanPoseEstimator:
         validation_image_paths = all_image_paths[num_cur_class_train_images:]
         return image_paths, validation_image_paths
 
+    def conv(self, x, filters, kernel_size, kernel_initializer, strides, activation):
+        return tf.keras.layers.Conv2D(
+            strides=strides,
+            filters=filters,
+            kernel_size=kernel_size,
+            kernel_initializer=kernel_initializer,
+            kernel_regularizer=tf.keras.regularizers.l2(l2=5e-4),
+            padding='same',
+            activation=activation)(x)
+
+    def get_model(self, input_shape, output_node_size):
+        input_layer = tf.keras.layers.Input(shape=input_shape)
+        x = input_layer
+        x = self.conv(x,  16, 3, 'he_normal', 2, 'relu')
+        x = self.conv(x,  32, 3, 'he_normal', 2, 'relu')
+        x = self.conv(x,  64, 3, 'he_normal', 2, 'relu')
+        x = self.conv(x, 128, 3, 'he_normal', 2, 'relu')
+        x = self.conv(x, 256, 3, 'he_normal', 2, 'relu')
+        x = self.conv(x, 512, 1, 'he_normal', 1, 'relu')
+        x = self.conv(x, 512, 1, 'he_normal', 1, 'relu')
+        x = self.conv(x, output_node_size, 1, 'glorot_normal', 1, 'sigmoid')
+        x = tf.keras.layers.GlobalAveragePooling2D(name='output')(x)
+        return tf.keras.models.Model(input_layer, x)
+
     def evaluate(self, model, generator_flow, loss_fn):
         loss_sum = 0.0
         for batch_x, batch_y in tqdm(generator_flow):
@@ -126,29 +150,36 @@ class HumanPoseEstimator:
         return loss_sum / tf.cast(len(generator_flow), dtype=tf.float32) 
 
     @tf.function
-    def compute_gradient(self, model, optimizer, x, y_true):
+    def compute_gradient(self, model, optimizer, x, y_true, lr):
         with tf.GradientTape() as tape:
             y_pred = model(x, training=True)
-            mse = tf.reduce_mean(tf.square(y_true - y_pred))
-            loss = tf.keras.backend.binary_crossentropy(y_true, y_pred)
-        gradients = tape.gradient(loss, model.trainable_variables)
+            loss = tf.reduce_mean(tf.square(y_true - y_pred), axis=0)
+            mean_loss = tf.reduce_mean(loss)
+            gradients = tape.gradient(loss * lr, model.trainable_variables)
         optimizer.apply_gradients(zip(gradients, model.trainable_variables))
-        return mse
+        return mean_loss
+
+    def schedule_lr(self, iteration_count, burn_in=1000):
+        if iteration_count <= burn_in:
+            return self.lr * pow(iteration_count / float(burn_in), 4)
+        elif iteration_count == int(self.iterations * 0.8):
+            return self.lr * 0.1
+        elif iteration_count == int(self.iterations * 0.9):
+            return self.lr * 0.01
+        else:
+            return self.lr
 
     def fit(self):
-        optimizer = tf.keras.optimizers.Adam(lr=self.lr, beta_1=self.momentum)
-        # optimizer = tf.keras.optimizers.SGD(lr=self.lr, momentum=self.momentum, nesterov=True)
+        optimizer = tf.keras.optimizers.SGD(lr=self.lr, momentum=self.momentum, nesterov=True)
         self.model.summary()
-
         print(f'\ntrain on {len(self.train_image_paths)} samples')
         print(f'validate on {len(self.validation_image_paths)} samples')
-
         iteration_count = 0
         min_val_loss = 999999999.0
         os.makedirs('checkpoints', exist_ok=True)
         while True:
             for x, y_true in self.train_data_generator:
-                loss = self.compute_gradient(self.model, optimizer, x, y_true)
+                loss = self.compute_gradient(self.model, optimizer, x, y_true, tf.constant(self.schedule_lr(iteration_count)))
                 iteration_count += 1
                 if self.training_view_flag:
                     self.training_view_function()
@@ -225,8 +256,8 @@ class HumanPoseEstimator:
         if cur_time - self.live_view_time < 0.5:
             return
         self.live_view_time = cur_time
-        # raw, _ = DataGenerator.load_img(np.random.choice(self.train_image_paths), 3)
-        raw, _ = DataGenerator.load_img(np.random.choice(self.validation_image_paths), 3)
+        raw, _ = DataGenerator.load_img(np.random.choice(self.train_image_paths), 3)
+        # raw, _ = DataGenerator.load_img(np.random.choice(self.validation_image_paths), 3)
         if self.input_shape[-1] == 1:
             img = cv2.cvtColor(raw, cv2.COLOR_RGB2GRAY)
         else:
