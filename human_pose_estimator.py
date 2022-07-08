@@ -124,7 +124,7 @@ class HumanPoseEstimator:
             filters=filters,
             kernel_size=kernel_size,
             kernel_initializer=kernel_initializer,
-            kernel_regularizer=tf.keras.regularizers.l2(l2=5e-4),
+            # kernel_regularizer=tf.keras.regularizers.l2(l2=5e-3),
             padding='same',
             activation=activation)(x)
 
@@ -133,13 +133,23 @@ class HumanPoseEstimator:
         x = input_layer
         x = self.conv(x,  16, 3, 'he_normal', 2, 'relu')
         x = self.conv(x,  32, 3, 'he_normal', 2, 'relu')
+        x = self.conv(x,  64, 3, 'he_normal', 1, 'relu')
         x = self.conv(x,  64, 3, 'he_normal', 2, 'relu')
+        x = self.conv(x, 128, 3, 'he_normal', 1, 'relu')
         x = self.conv(x, 128, 3, 'he_normal', 2, 'relu')
+        x = self.conv(x, 256, 3, 'he_normal', 1, 'relu')
         x = self.conv(x, 256, 3, 'he_normal', 2, 'relu')
-        x = self.conv(x, 512, 1, 'he_normal', 1, 'relu')
-        x = self.conv(x, 512, 1, 'he_normal', 1, 'relu')
-        x = self.conv(x, output_node_size, 1, 'glorot_normal', 1, 'sigmoid')
+        x = self.conv(x, 512, 3, 'he_normal', 1, 'relu')
+        # x = self.conv(x, 512, 1, 'he_normal', 1, 'relu')
+        # x = self.conv(x, 512, 1, 'he_normal', 1, 'relu')
+        # x = self.conv(x, output_node_size, 1, 'glorot_normal', 1, 'sigmoid')
         x = tf.keras.layers.GlobalAveragePooling2D(name='output')(x)
+
+        # x = tf.keras.layers.Flatten()(x)
+        # x = tf.keras.layers.Dropout(rate=0.5)(x)
+        x = tf.keras.layers.Dense(units=256, kernel_initializer='he_normal', activation='relu')(x)
+        x = tf.keras.layers.Dense(units=256, kernel_initializer='he_normal', activation='relu')(x)
+        x = tf.keras.layers.Dense(units=output_node_size, kernel_initializer='glorot_normal', activation='sigmoid')(x)
         return tf.keras.models.Model(input_layer, x)
 
     def evaluate(self, model, generator_flow, loss_fn):
@@ -153,24 +163,26 @@ class HumanPoseEstimator:
     def compute_gradient(self, model, optimizer, x, y_true, lr):
         with tf.GradientTape() as tape:
             y_pred = model(x, training=True)
-            loss = tf.reduce_mean(tf.square(y_true - y_pred), axis=0)
-            mean_loss = tf.reduce_mean(loss)
+            loss = tf.reduce_mean(tf.square(y_true - y_pred))
             gradients = tape.gradient(loss * lr, model.trainable_variables)
         optimizer.apply_gradients(zip(gradients, model.trainable_variables))
-        return mean_loss
+        return loss
 
     def schedule_lr(self, iteration_count, burn_in=1000):
+        # return self.lr
         if iteration_count <= burn_in:
             return self.lr * pow(iteration_count / float(burn_in), 4)
-        elif iteration_count == int(self.iterations * 0.8):
+        elif iteration_count == int(self.iterations * 0.5):
             return self.lr * 0.1
-        elif iteration_count == int(self.iterations * 0.9):
+        elif iteration_count == int(self.iterations * 0.75):
             return self.lr * 0.01
         else:
             return self.lr
 
     def fit(self):
-        optimizer = tf.keras.optimizers.SGD(lr=self.lr, momentum=self.momentum, nesterov=True)
+        optimizer = tf.keras.optimizers.SGD(lr=1.0, momentum=self.momentum, nesterov=True)
+        # optimizer = tf.keras.optimizers.Adam(lr=self.lr, beta_1=self.momentum)
+        # optimizer = tf.keras.optimizers.RMSprop(lr=self.lr)
         self.model.summary()
         print(f'\ntrain on {len(self.train_image_paths)} samples')
         print(f'validate on {len(self.validation_image_paths)} samples')
@@ -224,8 +236,6 @@ class HumanPoseEstimator:
         return img
 
     def draw_skeleton(self, img, y):
-        for v in y:
-            img = self.circle_if_valid(img, v)
         img = self.line_if_valid(img, y[Limb.HEAD.value], y[Limb.NECK.value])
 
         img = self.line_if_valid(img, y[Limb.NECK.value], y[Limb.RIGHT_SHOULDER.value])
@@ -249,6 +259,19 @@ class HumanPoseEstimator:
         img = self.line_if_valid(img, y[Limb.NECK.value], y[Limb.BACK.value])
         img = self.line_if_valid(img, y[Limb.BACK.value], y[Limb.RIGHT_HIP.value])
         img = self.line_if_valid(img, y[Limb.BACK.value], y[Limb.LEFT_HIP.value])
+        for v in y:
+            img = self.circle_if_valid(img, v)
+        return img
+
+    def predict(self, color_img):
+        raw = color_img
+        if self.input_shape[-1] == 1:
+            img = cv2.cvtColor(color_img, cv2.COLOR_RGB2GRAY)
+        else:
+            img = color_img
+        x = np.asarray(DataGenerator.resize(img, (self.input_shape[1], self.input_shape[0]))).reshape((1,) + self.input_shape).astype('float32') / 255.0
+        y = np.asarray(self.graph_forward(self.model, x)).reshape((self.limb_size, 3))
+        img = self.draw_skeleton(DataGenerator.resize(cv2.cvtColor(raw, cv2.COLOR_RGB2BGR), (256, 512)), y)
         return img
 
     def training_view_function(self):
@@ -256,14 +279,8 @@ class HumanPoseEstimator:
         if cur_time - self.live_view_time < 0.5:
             return
         self.live_view_time = cur_time
-        raw, _ = DataGenerator.load_img(np.random.choice(self.train_image_paths), 3)
-        # raw, _ = DataGenerator.load_img(np.random.choice(self.validation_image_paths), 3)
-        if self.input_shape[-1] == 1:
-            img = cv2.cvtColor(raw, cv2.COLOR_RGB2GRAY)
-        else:
-            img = raw
-        x = np.asarray(DataGenerator.resize(img, (self.input_shape[1], self.input_shape[0]))).reshape((1,) + self.input_shape).astype('float32') / 255.0
-        y = np.asarray(self.graph_forward(self.model, x)).reshape((self.limb_size, 3))
-        img = self.draw_skeleton(DataGenerator.resize(raw, (256, 512)), y)
-        cv2.imshow('training view', img)
+        train_image = self.predict(DataGenerator.load_img(np.random.choice(self.train_image_paths), 3)[0])
+        validation_image = self.predict(DataGenerator.load_img(np.random.choice(self.validation_image_paths), 3)[0])
+        cv2.imshow('train', train_image)
+        cv2.imshow('validation', validation_image)
         cv2.waitKey(1)
