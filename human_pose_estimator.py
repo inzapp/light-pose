@@ -126,8 +126,8 @@ class HumanPoseEstimator:
         validation_image_paths = all_image_paths[num_cur_class_train_images:]
         return image_paths, validation_image_paths
 
-    def conv(self, x, filters, kernel_size, kernel_initializer, strides, activation):
-        return tf.keras.layers.Conv2D(
+    def conv(self, x, filters, kernel_size, kernel_initializer, strides, activation, pool=False):
+        x = tf.keras.layers.Conv2D(
             strides=strides,
             filters=filters,
             kernel_size=kernel_size,
@@ -135,19 +135,23 @@ class HumanPoseEstimator:
             kernel_regularizer=tf.keras.regularizers.l2(l2=5e-4),
             padding='same',
             activation=activation)(x)
+        if pool:
+            x = tf.keras.layers.MaxPool2D()(x)
+        return x
 
     def get_model(self, input_shape, output_node_size):
         input_layer = tf.keras.layers.Input(shape=input_shape)
         x = input_layer
-        x = self.conv(x,  16, 3, 'he_normal', 2, 'relu')
-        x = self.conv(x,  32, 3, 'he_normal', 2, 'relu')
-        x = self.conv(x,  64, 3, 'he_normal', 2, 'relu')
-        x = self.conv(x, 128, 3, 'he_normal', 2, 'relu')
-        x = self.conv(x, 256, 3, 'he_normal', 2, 'relu')
+        x = self.conv(x,  16, 3, 'he_normal', 1, 'relu', pool=True)
+        x = self.conv(x,  32, 3, 'he_normal', 1, 'relu', pool=True)
+        x = self.conv(x,  64, 3, 'he_normal', 1, 'relu', pool=True)
+        x = self.conv(x, 128, 3, 'he_normal', 1, 'relu', pool=True)
+        x = self.conv(x, 256, 3, 'he_normal', 1, 'relu', pool=True)
         if self.output_tensor_dimension == 1:
             x = tf.keras.layers.Flatten()(x)
             x = tf.keras.layers.Dropout(rate=0.5)(x)
             x = tf.keras.layers.Dense(units=256, kernel_initializer='he_normal', activation='relu')(x)
+            x = tf.keras.layers.Dropout(rate=0.25)(x)
             x = tf.keras.layers.Dense(units=256, kernel_initializer='he_normal', activation='relu')(x)
             x = tf.keras.layers.Dense(units=output_node_size, kernel_initializer='glorot_normal', activation='sigmoid')(x)
         elif self.output_tensor_dimension == 2:
@@ -164,7 +168,12 @@ class HumanPoseEstimator:
     def compute_gradient_1d(self, model, optimizer, x, y_true, lr):
         with tf.GradientTape() as tape:
             y_pred = model(x, training=True)
-            loss = tf.reduce_mean(tf.square(y_true - y_pred))
+            batch_size = tf.cast(tf.shape(y_true)[0], dtype=tf.dtypes.int32)
+            y_true = tf.reshape(y_true, (batch_size, 16, 3))
+            y_pred = tf.reshape(y_pred, (batch_size, 16, 3))
+            confidence_loss = tf.reduce_sum(tf.reduce_mean(tf.keras.backend.binary_crossentropy(y_true[:, :, 0], y_pred[:, :, 0]), axis=0))
+            regression_loss = tf.reduce_sum(tf.reduce_mean(tf.reduce_sum(tf.square(y_true[:, :, 1:] - y_pred[:, :, 1:]), axis=-1) * y_true[:, :, 0], axis=0))
+            loss = confidence_loss + regression_loss
             gradients = tape.gradient(loss * lr, model.trainable_variables)
         optimizer.apply_gradients(zip(gradients, model.trainable_variables))
         return loss
@@ -226,6 +235,7 @@ class HumanPoseEstimator:
                 print(f'\r[iteration count : {iteration_count:6d}] loss => {loss:.4f}', end='')
                 if iteration_count % 10000 == 0:
                     print()
+                    self.model.save(f'checkpoints/model_{iteration_count}_iter.h5', include_optimizer=False)
                     # val_loss = self.evaluate(self.model, self.validation_data_generator, loss_fn)
                     val_loss = 0.0
                     print(f'val_loss : {val_loss:.4f}')
