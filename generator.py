@@ -56,6 +56,7 @@ class DataGenerator:
                 y = np.zeros(shape=self.output_shape, dtype=np.float32)
             for i, line in enumerate(lines):
                 confidence, x_pos, y_pos = list(map(float, line.split()))
+                x_pos, y_pos = np.clip([x_pos, y_pos], 0.0, 1.0 - 1e-4)
                 if self.output_tensor_dimension == 1:
                     y += [confidence, x_pos, y_pos]
                 elif self.output_tensor_dimension == 2:
@@ -66,7 +67,6 @@ class DataGenerator:
                     col = int(x_pos * output_cols)
                     y[row][col][i*3+0] = confidence
                     y[row][col][i*3+1] = (x_pos - float(col) / output_cols) / (1.0 / output_cols)
-                    y[row][col][i*3+2] = (y_pos - float(row) / output_rows) / (1.0 / output_rows)
                     y[row][col][i*3+2] = (y_pos - float(row) / output_rows) / (1.0 / output_rows)
             batch_y.append(y)
         batch_x = np.asarray(batch_x).reshape((self.batch_size,) + self.input_shape).astype('float32')
