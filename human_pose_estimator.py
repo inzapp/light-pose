@@ -90,7 +90,7 @@ class HumanPoseEstimator:
         if self.output_tensor_dimension == 1:
             self.output_size = self.limb_size * 3
         elif self.output_tensor_dimension == 2:
-            self.output_size = self.limb_size * 3 + 1
+            self.output_size = self.limb_size + 3
         if pretrained_model_path == '':
             self.model = self.get_model(self.input_shape, output_size=self.output_size)
             self.model.save('model.h5', include_optimizer=False)
@@ -238,15 +238,13 @@ class HumanPoseEstimator:
             confidence_true = y_true[:, :, :, 0]
             confidence_pred = y_pred[:, :, :, 0]
             confidence_loss = tf.reduce_sum(tf.reduce_mean(focal_loss(confidence_true, confidence_pred), axis=0))
-            class_true = y_true[:, :, :, 1:limb_size+1]
-            class_pred = y_pred[:, :, :, 1:limb_size+1]
+            class_true = y_true[:, :, :, 3:]
+            class_pred = y_pred[:, :, :, 3:]
             classification_loss = tf.reduce_sum(tf.reduce_mean(tf.reduce_sum(focal_loss(class_true, class_pred), axis=-1) * confidence_true, axis=0))
 
-            # limb_true_repeat = tf.transpose(tf.repeat(tf.transpose(class_true, [0, 3, 2, 1]), 2, axis=1), [0, 3, 2, 1])
-            # loss += tf.reduce_sum(tf.reduce_mean(-tf.math.log((1.0 + tf.keras.backend.epsilon()) - tf.abs(y_true[:, :, :, limb_size+1:] - y_pred[:, :, :, limb_size+1:])) * limb_true_repeat, axis=0))
             eps = tf.keras.backend.epsilon()
-            regression_true = y_true[:, :, :, limb_size+1:]
-            regression_pred = y_pred[:, :, :, limb_size+1:]
+            regression_true = y_true[:, :, :, 1:3]
+            regression_pred = y_pred[:, :, :, 1:3]
             regression_loss = tf.reduce_sum(tf.reduce_mean(tf.reduce_sum(-tf.math.log((1.0 + eps) - tf.abs(regression_true - regression_pred)), axis=-1) * confidence_true, axis=0))
             loss = confidence_loss + classification_loss + (regression_loss * 1.0)
             gradients = tape.gradient(loss * lr, model.trainable_variables)
@@ -369,16 +367,16 @@ class HumanPoseEstimator:
                         class_index = 0
                         max_class_score = 0.0
                         for j in range(self.limb_size):
-                            class_score = y[row][col][j+1]
+                            class_score = y[row][col][j+3]
                             if class_score > max_class_score:
                                 max_class_score = class_score
                                 class_index = j
-                        confidence *= y[row][col][class_index+1]
+                        confidence *= y[row][col][class_index+3]
                         if confidence < self.confidence_threshold:
                             continue
                         if confidence > res[class_index][0]:
-                            x_pos = y[row][col][(self.limb_size+1)+(class_index*2)+0]
-                            y_pos = y[row][col][(self.limb_size+1)+(class_index*2)+1]
+                            x_pos = y[row][col][1]
+                            y_pos = y[row][col][2]
                             x_pos = (col + x_pos) / float(cols)
                             y_pos = (row + y_pos) / float(rows)
                             res[class_index][0] = confidence

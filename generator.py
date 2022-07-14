@@ -65,9 +65,9 @@ class DataGenerator:
                     row = int(y_pos * output_rows)
                     col = int(x_pos * output_cols)
                     y[row][col][0] = confidence
-                    y[row][col][i+1] = 1.0
-                    y[row][col][(self.limb_size+1)+(i*2)+0] = (x_pos - float(col) / output_cols) / (1.0 / output_cols)
-                    y[row][col][(self.limb_size+1)+(i*2)+1] = (y_pos - float(row) / output_rows) / (1.0 / output_rows)
+                    y[row][col][1] = (x_pos - float(col) / output_cols) / (1.0 / output_cols)
+                    y[row][col][2] = (y_pos - float(row) / output_rows) / (1.0 / output_rows)
+                    y[row][col][i+3] = 1.0
             batch_y.append(y)
         batch_x = np.asarray(batch_x).reshape((self.batch_size,) + self.input_shape).astype('float32')
         batch_y = np.asarray(batch_y).reshape((self.batch_size,) + self.output_shape).astype('float32')
