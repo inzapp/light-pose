@@ -23,8 +23,8 @@ if __name__ == '__main__':
     HumanPoseEstimator(
         train_image_path=r'/train_data/pose/train',
         validation_image_path=r'/train_data/pose/validation',
-        input_shape=(192, 96, 1),
-        lr=0.1,
+        input_shape=(96, 96, 1),
+        lr=0.002,
         momentum=0.9,
         batch_size=32,
-        iterations=500000).fit()
+        iterations=300000).fit()
