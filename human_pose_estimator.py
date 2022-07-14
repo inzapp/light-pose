@@ -159,17 +159,17 @@ class HumanPoseEstimator:
     def get_model(self, input_shape, output_size):
         input_layer = tf.keras.layers.Input(shape=input_shape)
         x = input_layer
-        x = self.conv(x,  16, 3, 'he_normal', 1, 'relu', pool=True)
+        x = self.conv(x,  16, 3, 'he_normal', 2, 'relu')
         x = self.conv(x,  32, 3, 'he_normal', 1, 'relu')
-        x = self.conv(x,  32, 3, 'he_normal', 1, 'relu', pool=True)
+        x = self.conv(x,  32, 3, 'he_normal', 2, 'relu')
         x = self.conv(x,  64, 3, 'he_normal', 1, 'relu')
-        x = self.conv(x,  64, 3, 'he_normal', 1, 'relu', pool=True)
+        x = self.conv(x,  64, 3, 'he_normal', 2, 'relu')
         f0 = x
         x = self.conv(x, 128, 3, 'he_normal', 1, 'relu')
-        x = self.conv(x, 128, 3, 'he_normal', 1, 'relu', pool=True)
+        x = self.conv(x, 128, 3, 'he_normal', 2, 'relu')
         f1 = x
         x = self.conv(x, 256, 3, 'he_normal', 1, 'relu')
-        x = self.conv(x, 256, 3, 'he_normal', 1, 'relu', pool=True)
+        x = self.conv(x, 256, 3, 'he_normal', 2, 'relu')
         f2 = x
         x = self.feature_pyramid_network([f0, f1, f2], [64, 128, 256], bn=False, activation='relu')
         if self.output_tensor_dimension == 1:
@@ -188,16 +188,16 @@ class HumanPoseEstimator:
         if type(filters) == list:
             filters = list(reversed(filters))
         for i in range(len(layers)):
-            layers[i] = self.conv(layers[i], filters if type(filters) == int else filters[i], 1, bn=bn, activation=activation)
+            layers[i] = self.conv(layers[i], filters=filters if type(filters) == int else filters[i], kernel_size=1, bn=bn, activation=activation)
         ret = []
         if return_layers:
             ret.append(layers[0])
         for i in range(len(layers) - 1):
             x = tf.keras.layers.UpSampling2D()(layers[i] if i == 0 else x)
             if type(filters) == list and filters[i] != filters[i + 1]:
-                x = self.conv(x, filters[i + 1], 1, bn=bn, activation=activation)
+                x = self.conv(x, filters=filters[i + 1], kernel_size=1, bn=bn, activation=activation)
             x = self.add([x, layers[i + 1]])
-            x = self.conv(x, filters if type(filters) == int else filters[i + 1], 3, bn=bn, activation=activation)
+            x = self.conv(x, filters=filters if type(filters) == int else filters[i + 1], kernel_size=3, bn=bn, activation=activation)
             if return_layers:
                 ret.append(x)
         return list(reversed(ret)) if return_layers else x
@@ -249,19 +249,19 @@ class HumanPoseEstimator:
         return loss
 
     def schedule_lr(self, iteration_count, burn_in=1000):
-        return self.lr
-        # if iteration_count <= burn_in:
-        #     return self.lr * pow(iteration_count / float(burn_in), 4)
-        # elif iteration_count == int(self.iterations * 0.8):
-        #     return self.lr * 0.1
-        # elif iteration_count == int(self.iterations * 0.9):
-        #     return self.lr * 0.01
-        # else:
-        #     return self.lr
+        # return self.lr
+        if iteration_count <= burn_in:
+            return self.lr * pow(iteration_count / float(burn_in), 4)
+        elif iteration_count == int(self.iterations * 0.8):
+            return self.lr * 0.1
+        elif iteration_count == int(self.iterations * 0.9):
+            return self.lr * 0.01
+        else:
+            return self.lr
 
     def fit(self):
-        # optimizer = tf.keras.optimizers.SGD(lr=1.0, momentum=self.momentum, nesterov=True)
-        optimizer = tf.keras.optimizers.Adam(lr=self.lr, beta_1=self.momentum)
+        optimizer = tf.keras.optimizers.SGD(lr=1.0, momentum=self.momentum, nesterov=True)
+        # optimizer = tf.keras.optimizers.Adam(lr=self.lr, beta_1=self.momentum)
         # optimizer = tf.keras.optimizers.RMSprop(lr=self.lr)
         self.model.summary()
         print(f'\ntrain on {len(self.train_image_paths)} samples')
