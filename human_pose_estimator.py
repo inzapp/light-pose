@@ -215,9 +215,8 @@ class HumanPoseEstimator:
             batch_size = tf.cast(tf.shape(y_true)[0], dtype=tf.dtypes.int32)
             y_true = tf.reshape(y_true, (batch_size, limb_size, 3))
             y_pred = tf.reshape(y_pred, (batch_size, limb_size, 3))
-            confidence_loss = tf.reduce_sum(tf.reduce_mean(tf.keras.backend.binary_crossentropy(y_true[:, :, 0], y_pred[:, :, 0]), axis=0))
+            confidence_loss = tf.reduce_sum(tf.reduce_mean(K.binary_crossentropy(y_true[:, :, 0], y_pred[:, :, 0]), axis=0))
             regression_loss = tf.reduce_sum(tf.reduce_mean(tf.reduce_sum(-tf.math.log(1.0 - tf.abs(y_true[:, :, 1:] - y_pred[:, :, 1:])), axis=-1) * y_true[:, :, 0], axis=0))
-            # regression_loss = tf.reduce_sum(tf.reduce_mean(tf.reduce_sum(tf.square(y_true[:, :, 1:] - y_pred[:, :, 1:]), axis=-1) * y_true[:, :, 0], axis=0))
             loss = confidence_loss + regression_loss
             gradients = tape.gradient(loss * lr, model.trainable_variables)
         optimizer.apply_gradients(zip(gradients, model.trainable_variables))
@@ -238,15 +237,13 @@ class HumanPoseEstimator:
             confidence_true = y_true[:, :, :, 0]
             confidence_pred = y_pred[:, :, :, 0]
             confidence_loss = tf.reduce_sum(tf.reduce_mean(focal_loss(confidence_true, confidence_pred), axis=0))
-            class_true = y_true[:, :, :, 3:]
-            class_pred = y_pred[:, :, :, 3:]
-            classification_loss = tf.reduce_sum(tf.reduce_mean(tf.reduce_sum(focal_loss(class_true, class_pred), axis=-1) * confidence_true, axis=0))
-
-            eps = tf.keras.backend.epsilon()
             regression_true = y_true[:, :, :, 1:3]
             regression_pred = y_pred[:, :, :, 1:3]
-            regression_loss = tf.reduce_sum(tf.reduce_mean(tf.reduce_sum(-tf.math.log((1.0 + eps) - tf.abs(regression_true - regression_pred)), axis=-1) * confidence_true, axis=0))
-            loss = confidence_loss + classification_loss + (regression_loss * 1.0)
+            regression_loss = tf.reduce_sum(tf.reduce_mean(tf.reduce_sum(-tf.math.log((1.0 + K.epsilon()) - tf.abs(regression_true - regression_pred)), axis=-1) * confidence_true, axis=0))
+            class_true = y_true[:, :, :, 3:]
+            class_pred = y_pred[:, :, :, 3:]
+            classification_loss = tf.reduce_sum(tf.reduce_mean(tf.reduce_sum(K.binary_crossentropy(class_true, class_pred), axis=-1) * confidence_true, axis=0))
+            loss = confidence_loss + classification_loss + (regression_loss * 5.0)
             gradients = tape.gradient(loss * lr, model.trainable_variables)
         optimizer.apply_gradients(zip(gradients, model.trainable_variables))
         return loss
