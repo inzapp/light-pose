@@ -44,6 +44,7 @@ class DataGenerator:
         for f in fs:
             x, path = f.result()
             x = self.resize(x, (self.input_shape[1], self.input_shape[0]))
+            x = self.random_blur(x)
             x = np.asarray(x).reshape(self.input_shape).astype('float32') / 255.0
             batch_x.append(x)
 
@@ -90,6 +91,12 @@ class DataGenerator:
             np.random.shuffle(self.image_paths)
             self.image_index = 0
         return path
+
+    def random_blur(self, img):
+        if np.random.uniform() > 0.5:
+            kernel_size = np.random.choice([3, 5])
+            img = cv2.GaussianBlur(img, (kernel_size, kernel_size), 0)
+        return img
 
     @staticmethod
     def load_img(path, channels):
