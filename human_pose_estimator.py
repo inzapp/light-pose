@@ -50,8 +50,6 @@ class Limb(Enum):
     LEFT_HIP = auto()
     LEFT_KNEE = auto()
     LEFT_ANKLE = auto()
-    CHEST = auto()
-    BACK = auto()
 
 
 class HumanPoseEstimator:
@@ -86,7 +84,7 @@ class HumanPoseEstimator:
         if input_shape[-1] == 1:
             self.img_type = cv2.IMREAD_GRAYSCALE
 
-        self.limb_size = 16
+        self.limb_size = len(Limb)
         if self.output_tensor_dimension == 1:
             self.output_size = self.limb_size * 3
         elif self.output_tensor_dimension == 2:
@@ -331,19 +329,15 @@ class HumanPoseEstimator:
         img = self.line_if_valid(img, y[Limb.LEFT_SHOULDER.value], y[Limb.LEFT_ELBOW.value])
         img = self.line_if_valid(img, y[Limb.LEFT_ELBOW.value], y[Limb.LEFT_WRIST.value])
 
+        img = self.line_if_valid(img, y[Limb.RIGHT_HIP.value], y[Limb.LEFT_HIP.value])
+
+        img = self.line_if_valid(img, y[Limb.RIGHT_SHOULDER.value], y[Limb.RIGHT_HIP.value])
         img = self.line_if_valid(img, y[Limb.RIGHT_HIP.value], y[Limb.RIGHT_KNEE.value])
         img = self.line_if_valid(img, y[Limb.RIGHT_KNEE.value], y[Limb.RIGHT_ANKLE.value])
 
+        img = self.line_if_valid(img, y[Limb.LEFT_SHOULDER.value], y[Limb.LEFT_HIP.value])
         img = self.line_if_valid(img, y[Limb.LEFT_HIP.value], y[Limb.LEFT_KNEE.value])
         img = self.line_if_valid(img, y[Limb.LEFT_KNEE.value], y[Limb.LEFT_ANKLE.value])
-
-        img = self.line_if_valid(img, y[Limb.NECK.value], y[Limb.CHEST.value])
-        img = self.line_if_valid(img, y[Limb.CHEST.value], y[Limb.RIGHT_HIP.value])
-        img = self.line_if_valid(img, y[Limb.CHEST.value], y[Limb.LEFT_HIP.value])
-
-        img = self.line_if_valid(img, y[Limb.NECK.value], y[Limb.BACK.value])
-        img = self.line_if_valid(img, y[Limb.BACK.value], y[Limb.RIGHT_HIP.value])
-        img = self.line_if_valid(img, y[Limb.BACK.value], y[Limb.LEFT_HIP.value])
         for v in y:
             img = self.circle_if_valid(img, v)
         return img

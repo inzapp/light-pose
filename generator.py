@@ -56,6 +56,8 @@ class DataGenerator:
             elif self.output_tensor_dimension == 2:
                 y = np.zeros(shape=self.output_shape, dtype=np.float32)
             for i, line in enumerate(lines):
+                if i == self.limb_size:
+                    break
                 confidence, x_pos, y_pos = list(map(float, line.split()))
                 if self.output_tensor_dimension == 1:
                     y += [confidence, x_pos, y_pos]
