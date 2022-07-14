@@ -56,10 +56,10 @@ class DataGenerator:
                 y = np.zeros(shape=self.output_shape, dtype=np.float32)
             for i, line in enumerate(lines):
                 confidence, x_pos, y_pos = list(map(float, line.split()))
-                x_pos, y_pos = np.clip([x_pos, y_pos], 0.0, 1.0 - 1e-4)
                 if self.output_tensor_dimension == 1:
                     y += [confidence, x_pos, y_pos]
                 elif self.output_tensor_dimension == 2:
+                    x_pos, y_pos = np.clip([x_pos, y_pos], 0.0, 1.0 - 1e-4)
                     output_rows = self.output_shape[0]
                     output_cols = self.output_shape[1]
                     output_channels = self.output_shape[2]
