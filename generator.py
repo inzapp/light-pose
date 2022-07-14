@@ -25,13 +25,13 @@ import tensorflow as tf
 
 
 class DataGenerator:
-    def __init__(self, image_paths, input_shape, output_shape, output_tensor_dimension, batch_size, output_node_size):
+    def __init__(self, image_paths, input_shape, output_shape, output_tensor_dimension, batch_size, limb_size):
         self.image_paths = image_paths
         self.input_shape = input_shape
         self.output_shape = output_shape
         self.output_tensor_dimension = output_tensor_dimension
         self.batch_size = batch_size
-        self.output_node_size = output_node_size
+        self.limb_size = limb_size
         self.pool = ThreadPoolExecutor(8)
         self.image_index = 0
 
@@ -62,12 +62,12 @@ class DataGenerator:
                     x_pos, y_pos = np.clip([x_pos, y_pos], 0.0, 1.0 - 1e-4)
                     output_rows = self.output_shape[0]
                     output_cols = self.output_shape[1]
-                    output_channels = self.output_shape[2]
                     row = int(y_pos * output_rows)
                     col = int(x_pos * output_cols)
-                    y[row][col][i*3+0] = confidence
-                    y[row][col][i*3+1] = (x_pos - float(col) / output_cols) / (1.0 / output_cols)
-                    y[row][col][i*3+2] = (y_pos - float(row) / output_rows) / (1.0 / output_rows)
+                    y[row][col][0] = confidence
+                    y[row][col][i+1] = 1.0
+                    y[row][col][(self.limb_size+1)+(i*2)+0] = (x_pos - float(col) / output_cols) / (1.0 / output_cols)
+                    y[row][col][(self.limb_size+1)+(i*2)+1] = (y_pos - float(row) / output_rows) / (1.0 / output_rows)
             batch_y.append(y)
         batch_x = np.asarray(batch_x).reshape((self.batch_size,) + self.input_shape).astype('float32')
         batch_y = np.asarray(batch_y).reshape((self.batch_size,) + self.output_shape).astype('float32')
