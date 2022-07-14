@@ -271,27 +271,26 @@ class HumanPoseEstimator:
             compute_gradient = tf.function(self.compute_gradient_1d)
         elif self.output_tensor_dimension == 2:
             compute_gradient = tf.function(self.compute_gradient_2d)
-        while True:
-            for x, y_true in self.train_data_generator:
-                loss = compute_gradient(self.model, optimizer, x, y_true, tf.constant(self.schedule_lr(iteration_count)), self.limb_size)
-                iteration_count += 1
-                if self.training_view_flag:
-                    self.training_view_function()
-                print(f'\r[iteration count : {iteration_count:6d}] loss => {loss:.4f}', end='')
-                if iteration_count % 10000 == 0:
-                    print()
-                    self.model.save(f'checkpoints/model_{iteration_count}_iter.h5', include_optimizer=False)
-                    # val_loss = self.evaluate(self.model, self.validation_data_generator, loss_fn)
-                    val_loss = 0.0
-                    print(f'val_loss : {val_loss:.4f}')
-                    if val_loss < min_val_loss:
-                        min_val_loss = val_loss
-                        self.model.save(f'checkpoints/model_{iteration_count}_iter_{val_loss:.4f}_val_loss.h5', include_optimizer=False)
-                        print('minimum val loss model saved')
-                    print()
-                if iteration_count == self.iterations:
-                    print('train end successfully')
-                    return
+        for x, y_true in self.train_data_generator.flow():
+            loss = compute_gradient(self.model, optimizer, x, y_true, tf.constant(self.schedule_lr(iteration_count)), self.limb_size)
+            iteration_count += 1
+            if self.training_view_flag:
+                self.training_view_function()
+            print(f'\r[iteration count : {iteration_count:6d}] loss => {loss:.4f}', end='')
+            if iteration_count % 10000 == 0:
+                print()
+                self.model.save(f'checkpoints/model_{iteration_count}_iter.h5', include_optimizer=False)
+                # val_loss = self.evaluate(self.model, self.validation_data_generator, loss_fn)
+                val_loss = 0.0
+                print(f'val_loss : {val_loss:.4f}')
+                if val_loss < min_val_loss:
+                    min_val_loss = val_loss
+                    self.model.save(f'checkpoints/model_{iteration_count}_iter_{val_loss:.4f}_val_loss.h5', include_optimizer=False)
+                    print('minimum val loss model saved')
+                print()
+            if iteration_count == self.iterations:
+                print('train end successfully')
+                return
 
     def predict_validation_images(self):
         for img_path in self.validation_image_paths:
@@ -392,8 +391,8 @@ class HumanPoseEstimator:
         if cur_time - self.live_view_time < 0.5:
             return
         self.live_view_time = cur_time
-        train_image = self.predict(DataGenerator.load_img(np.random.choice(self.train_image_paths), 3)[0])
-        validation_image = self.predict(DataGenerator.load_img(np.random.choice(self.validation_image_paths), 3)[0])
+        train_image = self.predict(DataGenerator.load_img(np.random.choice(self.train_image_paths), color=True)[0])
+        validation_image = self.predict(DataGenerator.load_img(np.random.choice(self.validation_image_paths), color=True)[0])
         cv2.imshow('train', train_image)
         cv2.imshow('validation', validation_image)
         cv2.waitKey(1)

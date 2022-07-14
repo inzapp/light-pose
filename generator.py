@@ -32,59 +32,48 @@ class DataGenerator:
         self.output_tensor_dimension = output_tensor_dimension
         self.batch_size = batch_size
         self.limb_size = limb_size
-        self.pool = ThreadPoolExecutor(8)
         self.image_index = 0
+        self.pool = ThreadPoolExecutor(8)
 
-    def __getitem__(self, index):
-        batch_x = []
-        batch_y = []
-        fs = []
-        for i in range(self.batch_size):
-            fs.append(self.pool.submit(self.load_img, self.get_next_image_path(), self.input_shape[-1]))
-        for f in fs:
-            x, path = f.result()
-            x = self.resize(x, (self.input_shape[1], self.input_shape[0]))
-            x = self.random_blur(x)
-            x = np.asarray(x).reshape(self.input_shape).astype('float32') / 255.0
-            batch_x.append(x)
+    def flow(self):
+        while True:
+            fs = []
+            for i in range(self.batch_size):
+                fs.append(self.pool.submit(self.load_img, self.get_next_image_path(), color=self.input_shape[-1] == 3))
+            batch_x = []
+            batch_y = []
+            for f in fs:
+                x, path = f.result()
+                x = self.resize(x, (self.input_shape[1], self.input_shape[0]))
+                x = self.random_blur(x)
+                x = np.asarray(x).reshape(self.input_shape).astype('float32') / 255.0
+                batch_x.append(x)
 
-            label_path = f'{path[:-4]}.txt'
-            with open(label_path, 'rt') as file:
-                lines = file.readlines()
-            if self.output_tensor_dimension == 1:
-                y = []
-            elif self.output_tensor_dimension == 2:
+                with open(f'{path[:-4]}.txt', 'rt') as file:
+                    lines = file.readlines()
                 y = np.zeros(shape=self.output_shape, dtype=np.float32)
-            for i, line in enumerate(lines):
-                if i == self.limb_size:
-                    break
-                confidence, x_pos, y_pos = list(map(float, line.split()))
-                if self.output_tensor_dimension == 1:
-                    y += [confidence, x_pos, y_pos]
-                elif self.output_tensor_dimension == 2:
-                    x_pos, y_pos = np.clip([x_pos, y_pos], 0.0, 1.0 - 1e-4)
-                    output_rows = self.output_shape[0]
-                    output_cols = self.output_shape[1]
-                    row = int(y_pos * output_rows)
-                    col = int(x_pos * output_cols)
-                    y[row][col][0] = confidence
-                    y[row][col][1] = (x_pos - float(col) / output_cols) / (1.0 / output_cols)
-                    y[row][col][2] = (y_pos - float(row) / output_rows) / (1.0 / output_rows)
-                    y[row][col][i+3] = 1.0
-            batch_y.append(y)
-        batch_x = np.asarray(batch_x).reshape((self.batch_size,) + self.input_shape).astype('float32')
-        batch_y = np.asarray(batch_y).reshape((self.batch_size,) + self.output_shape).astype('float32')
-        return batch_x, batch_y
-
-    def __len__(self):
-        return int(np.floor(len(self.image_paths) / self.batch_size))
-
-    @staticmethod
-    def resize(img, size):
-        if size[0] > img.shape[1] or size[1] > img.shape[0]:
-            return cv2.resize(img, size, interpolation=cv2.INTER_LINEAR)
-        else:
-            return cv2.resize(img, size, interpolation=cv2.INTER_AREA)
+                for i, line in enumerate(lines):
+                    if i == self.limb_size:
+                        break
+                    confidence, x_pos, y_pos = list(map(float, line.split()))
+                    if self.output_tensor_dimension == 1:
+                        y[i*3+0] = confidence
+                        y[i*3+1] = x_pos 
+                        y[i*3+2] = y_pos 
+                    elif self.output_tensor_dimension == 2:
+                        x_pos, y_pos = np.clip([x_pos, y_pos], 0.0, 1.0 - 1e-4)
+                        output_rows = self.output_shape[0]
+                        output_cols = self.output_shape[1]
+                        row = int(y_pos * output_rows)
+                        col = int(x_pos * output_cols)
+                        y[row][col][0] = confidence
+                        y[row][col][1] = (x_pos - float(col) / output_cols) / (1.0 / output_cols)
+                        y[row][col][2] = (y_pos - float(row) / output_rows) / (1.0 / output_rows)
+                        y[row][col][i+3] = 1.0
+                batch_y.append(y)
+            batch_x = np.asarray(batch_x).reshape((self.batch_size,) + self.input_shape).astype('float32')
+            batch_y = np.asarray(batch_y).reshape((self.batch_size,) + self.output_shape).astype('float32')
+            yield batch_x, batch_y
 
     def get_next_image_path(self):
         path = self.image_paths[self.image_index]
@@ -101,8 +90,15 @@ class DataGenerator:
         return img
 
     @staticmethod
-    def load_img(path, channels):
-        img = cv2.imdecode(np.fromfile(path, dtype=np.uint8), cv2.IMREAD_GRAYSCALE if channels == 1 else cv2.IMREAD_COLOR)
-        if channels == 3:
+    def load_img(path, color=True):
+        img = cv2.imdecode(np.fromfile(path, dtype=np.uint8), cv2.IMREAD_COLOR if color else cv2.IMREAD_GRAYSCALE)
+        if color:
             img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)  # rb swap
         return img, path
+
+    @staticmethod
+    def resize(img, size):
+        if size[0] > img.shape[1] or size[1] > img.shape[0]:
+            return cv2.resize(img, size, interpolation=cv2.INTER_LINEAR)
+        else:
+            return cv2.resize(img, size, interpolation=cv2.INTER_AREA)
