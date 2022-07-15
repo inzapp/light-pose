@@ -284,9 +284,18 @@ class HumanPoseEstimator:
                 print('\ntrain end successfully')
                 return
 
-    def predict_validation_images(self):
-        for img_path in self.validation_image_paths:
-            pass
+    def predict_images(self, dataset='validation'):
+        assert dataset in ['train', 'validation']
+        if dataset == 'train':
+            image_paths = self.train_image_paths
+        elif dataset == 'validation':
+            image_paths = self.validation_image_paths
+        for img_path in image_paths:
+            img = self.predict(DataGenerator.load_img(img_path, color=True)[0])
+            cv2.imshow(f'{dataset} images', img)
+            key = cv2.waitKey(0)
+            if key == 27:
+                break
 
     @tf.function
     def graph_forward(self, model, x):
