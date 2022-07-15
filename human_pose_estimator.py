@@ -30,6 +30,7 @@ import tensorflow.keras.backend as K
 
 from tqdm import tqdm
 from generator import DataGenerator
+from lr_scheduler import LRScheduler
 
 
 os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true'
@@ -118,6 +119,7 @@ class HumanPoseEstimator:
             output_tensor_dimension=self.output_tensor_dimension,
             batch_size=self.batch_size,
             limb_size=self.limb_size)
+        self.lr_scheduler = LRScheduler(iterations=self.iterations, lr=self.lr)
 
     @staticmethod
     def init_image_paths(image_path, validation_split=0.0):
@@ -157,17 +159,17 @@ class HumanPoseEstimator:
     def get_model(self, input_shape, output_size):
         input_layer = tf.keras.layers.Input(shape=input_shape)
         x = input_layer
-        x = self.conv(x,  16, 3, 'he_normal', 2, 'relu')
+        x = self.conv(x,  16, 3, 'he_normal', 1, 'relu', pool=True)
         x = self.conv(x,  32, 3, 'he_normal', 1, 'relu')
-        x = self.conv(x,  32, 3, 'he_normal', 2, 'relu')
+        x = self.conv(x,  32, 3, 'he_normal', 1, 'relu', pool=True)
         x = self.conv(x,  64, 3, 'he_normal', 1, 'relu')
-        x = self.conv(x,  64, 3, 'he_normal', 2, 'relu')
+        x = self.conv(x,  64, 3, 'he_normal', 1, 'relu', pool=True)
         f0 = x
         x = self.conv(x, 128, 3, 'he_normal', 1, 'relu')
-        x = self.conv(x, 128, 3, 'he_normal', 2, 'relu')
+        x = self.conv(x, 128, 3, 'he_normal', 1, 'relu', pool=True)
         f1 = x
         x = self.conv(x, 256, 3, 'he_normal', 1, 'relu')
-        x = self.conv(x, 256, 3, 'he_normal', 2, 'relu')
+        x = self.conv(x, 256, 3, 'he_normal', 1, 'relu', pool=True)
         f2 = x
         x = self.feature_pyramid_network([f0, f1, f2], [64, 128, 256], bn=False, activation='relu')
         if self.output_tensor_dimension == 1:
@@ -207,7 +209,7 @@ class HumanPoseEstimator:
             loss_sum += tf.reduce_mean(np.square(batch_y - y_pred))
         return loss_sum / tf.cast(len(generator_flow), dtype=tf.float32) 
 
-    def compute_gradient_1d(self, model, optimizer, x, y_true, lr, limb_size):
+    def compute_gradient_1d(self, model, optimizer, x, y_true, limb_size):
         with tf.GradientTape() as tape:
             y_pred = model(x, training=True)
             batch_size = tf.cast(tf.shape(y_true)[0], dtype=tf.dtypes.int32)
@@ -216,11 +218,11 @@ class HumanPoseEstimator:
             confidence_loss = tf.reduce_sum(tf.reduce_mean(K.binary_crossentropy(y_true[:, :, 0], y_pred[:, :, 0]), axis=0))
             regression_loss = tf.reduce_sum(tf.reduce_mean(tf.reduce_sum(-tf.math.log(1.0 - tf.abs(y_true[:, :, 1:] - y_pred[:, :, 1:])), axis=-1) * y_true[:, :, 0], axis=0))
             loss = confidence_loss + regression_loss
-            gradients = tape.gradient(loss * lr, model.trainable_variables)
+        gradients = tape.gradient(loss, model.trainable_variables)
         optimizer.apply_gradients(zip(gradients, model.trainable_variables))
         return loss
 
-    def compute_gradient_2d(self, model, optimizer, x, y_true, lr, limb_size):
+    def compute_gradient_2d(self, model, optimizer, x, y_true, limb_size):
         def focal_loss(y_true, y_pred, alpha=0.25, gamma=2.0):
             p_t = tf.where(K.equal(y_true, 1.0), y_pred, 1.0 - y_pred)
             alpha_factor = K.ones_like(y_true) * alpha
@@ -242,23 +244,12 @@ class HumanPoseEstimator:
             class_pred = y_pred[:, :, :, 3:]
             classification_loss = tf.reduce_sum(tf.reduce_mean(tf.reduce_sum(K.binary_crossentropy(class_true, class_pred), axis=-1) * confidence_true, axis=0))
             loss = confidence_loss + classification_loss + (regression_loss * 5.0)
-            gradients = tape.gradient(loss * lr, model.trainable_variables)
+        gradients = tape.gradient(loss, model.trainable_variables)
         optimizer.apply_gradients(zip(gradients, model.trainable_variables))
         return loss
 
-    def schedule_lr(self, iteration_count, burn_in=1000):
-        # return self.lr
-        if iteration_count <= burn_in:
-            return self.lr * pow(iteration_count / float(burn_in), 4)
-        elif iteration_count == int(self.iterations * 0.8):
-            return self.lr * 0.1
-        elif iteration_count == int(self.iterations * 0.9):
-            return self.lr * 0.01
-        else:
-            return self.lr
-
     def fit(self):
-        optimizer = tf.keras.optimizers.SGD(lr=1.0, momentum=self.momentum, nesterov=True)
+        optimizer = tf.keras.optimizers.SGD(lr=self.lr, momentum=self.momentum, nesterov=True)
         # optimizer = tf.keras.optimizers.Adam(lr=self.lr, beta_1=self.momentum)
         # optimizer = tf.keras.optimizers.RMSprop(lr=self.lr)
         self.model.summary()
@@ -272,7 +263,8 @@ class HumanPoseEstimator:
         elif self.output_tensor_dimension == 2:
             compute_gradient = tf.function(self.compute_gradient_2d)
         for x, y_true in self.train_data_generator.flow():
-            loss = compute_gradient(self.model, optimizer, x, y_true, tf.constant(self.schedule_lr(iteration_count)), self.limb_size)
+            self.lr_scheduler.schedule_one_cycle(optimizer, iteration_count)
+            loss = compute_gradient(self.model, optimizer, x, y_true, self.limb_size)
             iteration_count += 1
             if self.training_view_flag:
                 self.training_view_function()
@@ -289,7 +281,7 @@ class HumanPoseEstimator:
                     print('minimum val loss model saved')
                 print()
             if iteration_count == self.iterations:
-                print('train end successfully')
+                print('\ntrain end successfully')
                 return
 
     def predict_validation_images(self):
