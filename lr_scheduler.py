@@ -41,7 +41,6 @@ class LRScheduler:
         self.cycle_step = 0
 
     def __set_lr(self, optimizer, lr):
-        print(f'\nlr : {lr:.9f}')
         optimizer.__setattr__('lr', lr)
 
     def __set_momentum(self, optimizer, momentum):
