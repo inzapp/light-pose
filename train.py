@@ -24,7 +24,7 @@ if __name__ == '__main__':
         train_image_path=r'/train_data/pose/train',
         validation_image_path=r'/train_data/pose/validation',
         input_shape=(96, 96, 1),
-        lr=0.002,
+        lr=0.001,
         momentum=0.9,
         batch_size=32,
         iterations=300000).fit()
