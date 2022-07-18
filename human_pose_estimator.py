@@ -362,7 +362,7 @@ class HumanPoseEstimator:
                             if class_score > max_class_score:
                                 max_class_score = class_score
                                 class_index = j
-                        confidence *= y[row][col][class_index+3]
+                        confidence *= max_class_score
                         if confidence < self.confidence_threshold:
                             continue
                         if confidence > res[class_index][0]:
