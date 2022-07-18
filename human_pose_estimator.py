@@ -19,6 +19,7 @@ limitations under the License.
 """
 import os
 import random
+from model import Model
 from glob import glob
 from time import time
 from enum import Enum, auto
@@ -62,6 +63,7 @@ class HumanPoseEstimator:
             momentum,
             batch_size,
             iterations,
+            decay=5e-4,
             training_view=False,
             pretrained_model_path='',
             validation_image_path='',
@@ -91,7 +93,7 @@ class HumanPoseEstimator:
         elif self.output_tensor_dimension == 2:
             self.output_size = self.limb_size + 3
         if pretrained_model_path == '':
-            self.model = self.get_model(self.input_shape, output_size=self.output_size)
+            self.model = Model(input_shape=self.input_shape, output_size=self.output_size, decay=decay).build(output_tensor_dimension=self.output_tensor_dimension)
             self.model.save('model.h5', include_optimizer=False)
         else:
             self.model = tf.keras.models.load_model(pretrained_model_path, compile=False)
@@ -129,78 +131,6 @@ class HumanPoseEstimator:
         image_paths = all_image_paths[:num_cur_class_train_images]
         validation_image_paths = all_image_paths[num_cur_class_train_images:]
         return image_paths, validation_image_paths
-
-    def conv(self, x, filters, kernel_size, kernel_initializer='he_normal', strides=1, activation='relu', pool=False, bn=False):
-        x = tf.keras.layers.Conv2D(
-            strides=strides,
-            filters=filters,
-            kernel_size=kernel_size,
-            kernel_initializer=kernel_initializer,
-            kernel_regularizer=tf.keras.regularizers.l2(l2=5e-4),
-            use_bias=False if bn else True,
-            padding='same')(x)
-        if bn:
-            x = tf.keras.layers.BatchNormalization()(x)
-        x = tf.keras.layers.Activation(activation)(x)
-        if pool:
-            x = tf.keras.layers.MaxPool2D()(x)
-        return x
-
-    def dense(self, x, units, kernel_initializer, activation, bn=False):
-        x = tf.keras.layers.Dense(
-            units=units,
-            kernel_initializer=kernel_initializer,
-            use_bias=False if bn else True)(x)
-        if bn:
-            x = tf.keras.layers.BatchNormalization()(x)
-        x = tf.keras.layers.Activation(activation)(x)
-        return x
-
-    def get_model(self, input_shape, output_size):
-        input_layer = tf.keras.layers.Input(shape=input_shape)
-        x = input_layer
-        x = self.conv(x,  16, 3, 'he_normal', 1, 'relu', pool=True)
-        x = self.conv(x,  32, 3, 'he_normal', 1, 'relu')
-        x = self.conv(x,  32, 3, 'he_normal', 1, 'relu', pool=True)
-        x = self.conv(x,  64, 3, 'he_normal', 1, 'relu')
-        x = self.conv(x,  64, 3, 'he_normal', 1, 'relu', pool=True)
-        f0 = x
-        x = self.conv(x, 128, 3, 'he_normal', 1, 'relu')
-        x = self.conv(x, 128, 3, 'he_normal', 1, 'relu', pool=True)
-        f1 = x
-        x = self.conv(x, 256, 3, 'he_normal', 1, 'relu')
-        x = self.conv(x, 256, 3, 'he_normal', 1, 'relu', pool=True)
-        f2 = x
-        x = self.feature_pyramid_network([f0, f1, f2], [64, 128, 256], bn=False, activation='relu')
-        if self.output_tensor_dimension == 1:
-            x = self.conv(x, output_size, 1, 'he_normal', 1, 'relu')
-            x = tf.keras.layers.Flatten()(x)
-            x = self.dense(x, output_size, 'glorot_normal', 'sigmoid')
-        elif self.output_tensor_dimension == 2:
-            x = self.conv(x, output_size, 1, 'glorot_normal', 1, 'sigmoid')
-        return tf.keras.models.Model(input_layer, x)
-
-    def add(self, layers):
-        return tf.keras.layers.Add()(layers)
-
-    def feature_pyramid_network(self, layers, filters, bn, activation, return_layers=False):
-        layers = list(reversed(layers))
-        if type(filters) == list:
-            filters = list(reversed(filters))
-        for i in range(len(layers)):
-            layers[i] = self.conv(layers[i], filters=filters if type(filters) == int else filters[i], kernel_size=1, bn=bn, activation=activation)
-        ret = []
-        if return_layers:
-            ret.append(layers[0])
-        for i in range(len(layers) - 1):
-            x = tf.keras.layers.UpSampling2D()(layers[i] if i == 0 else x)
-            if type(filters) == list and filters[i] != filters[i + 1]:
-                x = self.conv(x, filters=filters[i + 1], kernel_size=1, bn=bn, activation=activation)
-            x = self.add([x, layers[i + 1]])
-            x = self.conv(x, filters=filters if type(filters) == int else filters[i + 1], kernel_size=3, bn=bn, activation=activation)
-            if return_layers:
-                ret.append(x)
-        return list(reversed(ret)) if return_layers else x
 
     def evaluate(self, model, generator_flow, loss_fn):
         loss_sum = 0.0
