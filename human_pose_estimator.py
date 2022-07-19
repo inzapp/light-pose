@@ -139,6 +139,64 @@ class HumanPoseEstimator:
             loss_sum += tf.reduce_mean(np.square(batch_y - y_pred))
         return loss_sum / tf.cast(len(generator_flow), dtype=tf.float32) 
 
+    def calculate_pck(self, dataset='validation', distance_threshold=0.1):  # PCK : percentage of correct keypoints, the metric of keypoints detection model
+        assert dataset in ['train', 'validation']
+        total_count = 0
+        correct_count = 0
+        image_paths = self.train_image_paths if dataset == 'train' else self.validation_image_paths
+
+        np.random.shuffle(image_paths)
+        image_paths = image_paths[:2000]
+
+        head_neck_distance_count = 0
+        head_neck_distance_sum = 0.0
+        for image_path in tqdm(image_paths):
+            img, path = DataGenerator.load_img(image_path, self.input_shape[-1] == 3)
+            img = DataGenerator.resize(img, (self.input_shape[1], self.input_shape[0]))
+            x = np.asarray(img).reshape((1,) + self.input_shape).astype('float32') / 255.0
+            y_pred = np.asarray(self.graph_forward(self.model, x)).reshape(self.output_shape).astype('float32')
+            y_pred = self.post_process(y_pred)
+            
+            with open(f'{path[:-4]}.txt', 'rt') as f:
+                lines = f.readlines()
+            y_true = np.zeros(shape=(self.limb_size, 3), dtype=np.float32)
+            for i, line in enumerate(lines):
+                if i == self.limb_size:
+                    break
+                confidence, x_pos, y_pos = list(map(float, line.split()))
+                y_true[i][0] = confidence
+                y_true[i][1] = x_pos
+                y_true[i][2] = y_pos
+                if confidence == 1.0:
+                    total_count += 1
+
+            if y_true[0][0] == 1.0 and y_true[1][0] == 1.0:
+                x_pos_head = y_true[0][1]
+                y_pos_head = y_true[0][2]
+                x_pos_neck = y_true[1][1]
+                y_pos_neck = y_true[1][2]
+                distance = np.sqrt(np.square(x_pos_head - x_pos_neck) + np.square(y_pos_head - y_pos_neck))
+                head_neck_distance_sum += distance
+                head_neck_distance_count += 1
+
+            for i in range(self.limb_size):
+                if y_pred[i][0] < self.confidence_threshold:
+                    continue
+                x_pos_true = y_true[i][1]
+                y_pos_true = y_true[i][2]
+                x_pos_pred = y_pred[i][1]
+                y_pos_pred = y_pred[i][2]
+                distance = np.sqrt(np.square(x_pos_true - x_pos_pred) + np.square(y_pos_true - y_pos_pred))
+                if distance < distance_threshold:
+                    correct_count += 1
+
+        head_neck_distance = head_neck_distance_sum / float(head_neck_distance_count)
+        print(f'head neck distance : {head_neck_distance:.4f}')
+
+        pck = correct_count / float(total_count)
+        print(f'{dataset} data PCK@{int(distance_threshold * 100)} : {pck:.4f}')
+        return pck
+
     def compute_gradient_1d(self, model, optimizer, x, y_true, limb_size):
         with tf.GradientTape() as tape:
             y_pred = model(x, training=True)
