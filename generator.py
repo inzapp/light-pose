@@ -49,8 +49,6 @@ class DataGenerator:
                 x = np.asarray(x).reshape(self.input_shape).astype('float32') / 255.0
                 batch_x.append(x)
 
-                output_rows = self.output_shape[0]
-                output_cols = self.output_shape[1]
                 with open(f'{path[:-4]}.txt', 'rt') as file:
                     lines = file.readlines()
                 y = np.zeros(shape=self.output_shape, dtype=np.float32)
@@ -63,6 +61,8 @@ class DataGenerator:
                         y[i*3+1] = x_pos 
                         y[i*3+2] = y_pos 
                     elif self.output_tensor_dimension == 2:
+                        output_rows = self.output_shape[0]
+                        output_cols = self.output_shape[1]
                         x_pos, y_pos = np.clip([x_pos, y_pos], 0.0, 1.0 - 1e-4)  # subtract small value to avoid index out of range
                         row = int(y_pos * output_rows)
                         col = int(x_pos * output_cols)
