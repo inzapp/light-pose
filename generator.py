@@ -43,10 +43,10 @@ class DataGenerator:
             batch_x = []
             batch_y = []
             for f in fs:
-                x, path = f.result()
-                x = self.resize(x, (self.input_shape[1], self.input_shape[0]))
-                x = self.random_blur(x)
-                x = np.asarray(x).reshape(self.input_shape).astype('float32') / 255.0
+                img, path = f.result()
+                img = self.resize(img, (self.input_shape[1], self.input_shape[0]))
+                img = self.random_blur(img)
+                x = np.asarray(img).reshape(self.input_shape).astype('float32') / 255.0
                 batch_x.append(x)
 
                 with open(f'{path[:-4]}.txt', 'rt') as file:
