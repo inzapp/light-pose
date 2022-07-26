@@ -141,15 +141,12 @@ class HumanPoseEstimator:
 
     def calculate_pck(self, dataset='validation', distance_threshold=0.1):  # PCK : percentage of correct keypoints, the metric of keypoints detection model
         assert dataset in ['train', 'validation']
-        total_count = 0
-        correct_count = 0
-        image_paths = self.train_image_paths if dataset == 'train' else self.validation_image_paths
-
-        np.random.shuffle(image_paths)
-        image_paths = image_paths[:2000]
-
+        visible_keypoint_count = 0
+        correct_keypoint_count = 0
+        invisible_keypoint_count = 0
         head_neck_distance_count = 0
         head_neck_distance_sum = 0.0
+        image_paths = self.train_image_paths if dataset == 'train' else self.validation_image_paths
         for image_path in tqdm(image_paths):
             img, path = DataGenerator.load_img(image_path, self.input_shape[-1] == 3)
             img = DataGenerator.resize(img, (self.input_shape[1], self.input_shape[0]))
@@ -167,8 +164,6 @@ class HumanPoseEstimator:
                 y_true[i][0] = confidence
                 y_true[i][1] = x_pos
                 y_true[i][2] = y_pos
-                if confidence == 1.0:
-                    total_count += 1
 
             if y_true[0][0] == 1.0 and y_true[1][0] == 1.0:
                 x_pos_head = y_true[0][1]
@@ -180,20 +175,26 @@ class HumanPoseEstimator:
                 head_neck_distance_count += 1
 
             for i in range(self.limb_size):
-                if y_pred[i][0] < self.confidence_threshold:
-                    continue
-                x_pos_true = y_true[i][1]
-                y_pos_true = y_true[i][2]
-                x_pos_pred = y_pred[i][1]
-                y_pos_pred = y_pred[i][2]
-                distance = np.sqrt(np.square(x_pos_true - x_pos_pred) + np.square(y_pos_true - y_pos_pred))
-                if distance < distance_threshold:
-                    correct_count += 1
+                if y_true[i][0] == 1.0:
+                    visible_keypoint_count += 1
+                    if y_pred[i][0] > self.confidence_threshold:
+                        x_pos_true = y_true[i][1]
+                        y_pos_true = y_true[i][2]
+                        x_pos_pred = y_pred[i][1]
+                        y_pos_pred = y_pred[i][2]
+                        distance = np.sqrt(np.square(x_pos_true - x_pos_pred) + np.square(y_pos_true - y_pos_pred))
+                        if distance < distance_threshold:
+                            correct_keypoint_count += 1
+                else:
+                    invisible_keypoint_count += 1
 
         head_neck_distance = head_neck_distance_sum / float(head_neck_distance_count)
-        print(f'head neck distance : {head_neck_distance:.4f}')
+        pck = correct_keypoint_count / float(visible_keypoint_count)
 
-        pck = correct_count / float(total_count)
+        print(f'visible_keypoint_count   : {visible_keypoint_count}')
+        print(f'invisible_keypoint_count : {invisible_keypoint_count}')
+        print(f'correct_keypoint_count   : {correct_keypoint_count}')
+        print(f'head neck distance : {head_neck_distance:.4f}')
         print(f'{dataset} data PCK@{int(distance_threshold * 100)} : {pck:.4f}')
         return pck
 
@@ -204,7 +205,7 @@ class HumanPoseEstimator:
             y_true = tf.reshape(y_true, (batch_size, limb_size, 3))
             y_pred = tf.reshape(y_pred, (batch_size, limb_size, 3))
             confidence_loss = tf.reduce_sum(tf.reduce_mean(K.binary_crossentropy(y_true[:, :, 0], y_pred[:, :, 0]), axis=0))
-            regression_loss = tf.reduce_sum(tf.reduce_mean(tf.reduce_sum(-tf.math.log(1.0 - tf.abs(y_true[:, :, 1:] - y_pred[:, :, 1:])), axis=-1) * y_true[:, :, 0], axis=0))
+            regression_loss = tf.reduce_sum(tf.reduce_mean(tf.reduce_sum(tf.square(y_true[:, :, 1:] - y_pred[:, :, 1:]), axis=-1) * y_true[:, :, 0], axis=0))
             loss = confidence_loss + regression_loss
         gradients = tape.gradient(loss, model.trainable_variables)
         optimizer.apply_gradients(zip(gradients, model.trainable_variables))
@@ -227,11 +228,12 @@ class HumanPoseEstimator:
             confidence_loss = tf.reduce_sum(tf.reduce_mean(focal_loss(confidence_true, confidence_pred), axis=0))
             regression_true = y_true[:, :, :, 1:3]
             regression_pred = y_pred[:, :, :, 1:3]
-            regression_loss = tf.reduce_sum(tf.reduce_mean(tf.reduce_sum(-tf.math.log((1.0 + K.epsilon()) - tf.abs(regression_true - regression_pred)), axis=-1) * confidence_true, axis=0))
+            # regression_loss = tf.reduce_sum(tf.reduce_mean(tf.reduce_sum(-tf.math.log((1.0 + K.epsilon()) - tf.abs(regression_true - regression_pred)), axis=-1) * confidence_true, axis=0))
+            regression_loss = tf.reduce_sum(tf.reduce_mean(tf.reduce_sum(tf.square(regression_true - regression_pred), axis=-1) * confidence_true, axis=0))
             class_true = y_true[:, :, :, 3:]
             class_pred = y_pred[:, :, :, 3:]
             classification_loss = tf.reduce_sum(tf.reduce_mean(tf.reduce_sum(K.binary_crossentropy(class_true, class_pred), axis=-1) * confidence_true, axis=0))
-            loss = confidence_loss + classification_loss + (regression_loss * 5.0)
+            loss = confidence_loss + classification_loss + (regression_loss * 1.0)
         gradients = tape.gradient(loss, model.trainable_variables)
         optimizer.apply_gradients(zip(gradients, model.trainable_variables))
         return loss
@@ -244,29 +246,30 @@ class HumanPoseEstimator:
         print(f'\ntrain on {len(self.train_image_paths)} samples')
         print(f'validate on {len(self.validation_image_paths)} samples')
         iteration_count = 0
-        min_val_loss = 999999999.0
+        max_val_pck = 0.0
         os.makedirs('checkpoints', exist_ok=True)
         if self.output_tensor_dimension == 1:
             compute_gradient = tf.function(self.compute_gradient_1d)
         elif self.output_tensor_dimension == 2:
             compute_gradient = tf.function(self.compute_gradient_2d)
         for x, y_true in self.train_data_generator.flow():
-            self.lr_scheduler.schedule_one_cycle(optimizer, iteration_count)
+            self.lr_scheduler.schedule_step_decay(optimizer, iteration_count)
             loss = compute_gradient(self.model, optimizer, x, y_true, self.limb_size)
             iteration_count += 1
             if self.training_view_flag:
                 self.training_view_function()
             print(f'\r[iteration count : {iteration_count:6d}] loss => {loss:.4f}', end='')
-            if iteration_count % 10000 == 0:
+            # if iteration_count == self.iterations:
+            if iteration_count % 2000 == 0:
                 print()
-                self.model.save(f'checkpoints/model_{iteration_count}_iter.h5', include_optimizer=False)
-                # val_loss = self.evaluate(self.model, self.validation_data_generator, loss_fn)
-                val_loss = 0.0
-                print(f'val_loss : {val_loss:.4f}')
-                if val_loss < min_val_loss:
-                    min_val_loss = val_loss
-                    self.model.save(f'checkpoints/model_{iteration_count}_iter_{val_loss:.4f}_val_loss.h5', include_optimizer=False)
-                    print('minimum val loss model saved')
+                val_pck = self.calculate_pck(dataset='validation')
+                save_path = ''
+                if val_pck > max_val_pck:
+                    max_val_pck = val_pck
+                    self.model.save(f'checkpoints/best_model_{iteration_count}_iter_{val_pck:.4f}_val_PCK.h5', include_optimizer=False)
+                    print('best val PCK model saved')
+                else:
+                    self.model.save(f'checkpoints/model_{iteration_count}_iter_{val_pck:.4f}_val_PCK.h5', include_optimizer=False)
                 print()
             if iteration_count == self.iterations:
                 print('\ntrain end successfully')
@@ -370,7 +373,7 @@ class HumanPoseEstimator:
         else:
             img = color_img
         x = np.asarray(DataGenerator.resize(img, (self.input_shape[1], self.input_shape[0]))).reshape((1,) + self.input_shape).astype('float32') / 255.0
-        y = np.asarray(self.graph_forward(self.model, x)).reshape(self.output_shape)
+        y = np.asarray(self.graph_forward(self.model, x)[0]).reshape(self.output_shape)
         y = self.post_process(y)
         img = self.draw_skeleton(DataGenerator.resize(cv2.cvtColor(raw, cv2.COLOR_RGB2BGR), view_size), y)
         return img
