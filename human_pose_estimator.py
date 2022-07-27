@@ -32,6 +32,7 @@ import tensorflow.keras.backend as K
 from tqdm import tqdm
 from generator import DataGenerator
 from lr_scheduler import LRScheduler
+from keras_flops import get_flops
 
 
 os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true'
@@ -228,22 +229,21 @@ class HumanPoseEstimator:
             confidence_loss = tf.reduce_sum(tf.reduce_mean(focal_loss(confidence_true, confidence_pred), axis=0))
             regression_true = y_true[:, :, :, 1:3]
             regression_pred = y_pred[:, :, :, 1:3]
-            # regression_loss = tf.reduce_sum(tf.reduce_mean(tf.reduce_sum(-tf.math.log((1.0 + K.epsilon()) - tf.abs(regression_true - regression_pred)), axis=-1) * confidence_true, axis=0))
             regression_loss = tf.reduce_sum(tf.reduce_mean(tf.reduce_sum(tf.square(regression_true - regression_pred), axis=-1) * confidence_true, axis=0))
             class_true = y_true[:, :, :, 3:]
             class_pred = y_pred[:, :, :, 3:]
             classification_loss = tf.reduce_sum(tf.reduce_mean(tf.reduce_sum(K.binary_crossentropy(class_true, class_pred), axis=-1) * confidence_true, axis=0))
-            loss = confidence_loss + classification_loss + (regression_loss * 1.0)
+            loss = confidence_loss + classification_loss + regression_loss
         gradients = tape.gradient(loss, model.trainable_variables)
         optimizer.apply_gradients(zip(gradients, model.trainable_variables))
         return loss
 
     def fit(self):
         optimizer = tf.keras.optimizers.SGD(lr=self.lr, momentum=self.momentum, nesterov=True)
-        # optimizer = tf.keras.optimizers.Adam(lr=self.lr, beta_1=self.momentum)
-        # optimizer = tf.keras.optimizers.RMSprop(lr=self.lr)
+        gflops = get_flops(self.model, batch_size=1) * 1e-9
         self.model.summary()
-        print(f'\ntrain on {len(self.train_image_paths)} samples')
+        print(f'\nGFLOPs : {gflops:.9f}')
+        print(f'train on {len(self.train_image_paths)} samples')
         print(f'validate on {len(self.validation_image_paths)} samples')
         iteration_count = 0
         max_val_pck = 0.0
@@ -260,7 +260,7 @@ class HumanPoseEstimator:
                 self.training_view_function()
             print(f'\r[iteration count : {iteration_count:6d}] loss => {loss:.4f}', end='')
             # if iteration_count == self.iterations:
-            if iteration_count % 2000 == 0:
+            if iteration_count % 2000 == 0 and iteration_count > int(self.iterations * 0.25):
                 print()
                 val_pck = self.calculate_pck(dataset='validation')
                 save_path = ''
