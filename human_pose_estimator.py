@@ -263,7 +263,6 @@ class HumanPoseEstimator:
             if iteration_count % 2000 == 0 and iteration_count > int(self.iterations * 0.25):
                 print()
                 val_pck = self.calculate_pck(dataset='validation')
-                save_path = ''
                 if val_pck > max_val_pck:
                     max_val_pck = val_pck
                     self.model.save(f'checkpoints/best_model_{iteration_count}_iter_{val_pck:.4f}_val_PCK.h5', include_optimizer=False)
