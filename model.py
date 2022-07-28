@@ -41,20 +41,24 @@ class Model:
 
         x = self.conv(x, filters=64, kernel_size=3, kernel_initializer='he_normal', activation='relu')
         x = self.conv(x, filters=64, kernel_size=3, kernel_initializer='he_normal', activation='relu')
+        x = self.spatial_attention(x)
         x = self.max_pool(x)
+
+        x = self.conv(x, filters=128, kernel_size=3, kernel_initializer='he_normal', activation='relu')
+        x = self.conv(x, filters=128, kernel_size=3, kernel_initializer='he_normal', activation='relu')
         f0 = x
-
-        x = self.conv(x, filters=128, kernel_size=3, kernel_initializer='he_normal', activation='relu')
-        x = self.conv(x, filters=128, kernel_size=3, kernel_initializer='he_normal', activation='relu')
         x = self.max_pool(x)
+
+        x = self.conv(x, filters=256, kernel_size=3, kernel_initializer='he_normal', activation='relu')
+        x = self.conv(x, filters=256, kernel_size=3, kernel_initializer='he_normal', activation='relu')
         f1 = x
+        x = self.max_pool(x)
 
         x = self.conv(x, filters=256, kernel_size=3, kernel_initializer='he_normal', activation='relu')
         x = self.conv(x, filters=256, kernel_size=3, kernel_initializer='he_normal', activation='relu')
-        x = self.max_pool(x)
         f2 = x
 
-        x = self.feature_pyramid_network([f0, f1, f2], [64, 128, 256], kernel_size=3, kernel_initializer='he_normal', activation='relu')
+        x = self.feature_pyramid_network([f0, f1, f2], [128, 128, 256], kernel_size=3, kernel_initializer='he_normal', activation='relu')
         if output_tensor_dimension == 1:
             x = self.conv(x, filters=self.output_size, kernel_size=1, kernel_initializer='he_normal', activation='relu')
             x = tf.keras.layers.Flatten()(x)
@@ -73,11 +77,8 @@ class Model:
             padding='same')(x)
         if bn:
             x = self.bn(x)
-        x = tf.keras.layers.Activation(activation)(x)
+        x = self.activation(x, activation=activation)
         return x
-
-    def max_pool(self, x):
-        return tf.keras.layers.MaxPool2D()(x)
 
     def dense(self, x, units, kernel_initializer, activation, bn=False):
         x = tf.keras.layers.Dense(
@@ -86,8 +87,34 @@ class Model:
             use_bias=False if bn else True)(x)
         if bn:
             x = self.bn(x)
-        x = tf.keras.layers.Activation(activation)(x)
+        x = self.activation(x, activation=activation)
         return x
+
+    def activation(self, x, activation, alpha=0.1):
+        if activation == 'leaky':
+            x = tf.keras.layers.LeakyReLU(alpha=alpha)(x) 
+        else:
+            x = tf.keras.layers.Activation(activation)(x)
+        return x
+
+    def spatial_attention(self, x):
+        input_layer = x
+        input_filters = input_layer.shape[-1]
+        squeezed_filters = input_filters // 16
+        if squeezed_filters <= 2:
+            squeezed_filters = 2
+        x = self.conv(x, filters=squeezed_filters, kernel_size=1, kernel_initializer='he_normal', activation='relu')
+        x = self.conv(x, filters=squeezed_filters, kernel_size=7, kernel_initializer='he_normal', activation='relu')
+        x = tf.keras.layers.Conv2D(
+            filters=input_filters,
+            kernel_size=1,
+            kernel_initializer='glorot_normal',
+            kernel_regularizer=tf.keras.regularizers.l2(l2=self.decay) if self.decay > 0.0 else None,
+            bias_initializer='zeros',
+            use_bias=False,
+            padding='same')(x)
+        x = self.activation(x, activation='sigmoid')
+        return self.multiply([input_layer, x])
 
     def feature_pyramid_network(self, layers, filters, kernel_size, kernel_initializer, activation, bn=False, return_layers=False):
         layers = list(reversed(layers))
@@ -108,8 +135,14 @@ class Model:
                 ret.append(x)
         return list(reversed(ret)) if return_layers else x
 
+    def max_pool(self, x):
+        return tf.keras.layers.MaxPool2D()(x)
+
     def bn(self, x):
         return tf.keras.layers.BatchNormalization()(x)
 
     def add(self, layers):
         return tf.keras.layers.Add()(layers)
+
+    def multiply(self, layers):
+        return tf.keras.layers.Multiply()(layers)
