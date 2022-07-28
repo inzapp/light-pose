@@ -98,6 +98,7 @@ class HumanPoseEstimator:
             self.model.save('model.h5', include_optimizer=False)
         else:
             self.model = tf.keras.models.load_model(pretrained_model_path, compile=False)
+            self.input_shape = self.model.input_shape[1:]
         self.output_shape = self.model.output_shape[1:]
 
         self.train_image_paths = list()
@@ -242,7 +243,7 @@ class HumanPoseEstimator:
         optimizer = tf.keras.optimizers.SGD(lr=self.lr, momentum=self.momentum, nesterov=True)
         gflops = get_flops(self.model, batch_size=1) * 1e-9
         self.model.summary()
-        print(f'\nGFLOPs : {gflops:.9f}')
+        print(f'\nGFLOPs : {gflops:.4f}')
         print(f'train on {len(self.train_image_paths)} samples')
         print(f'validate on {len(self.validation_image_paths)} samples')
         iteration_count = 0
@@ -259,8 +260,7 @@ class HumanPoseEstimator:
             if self.training_view_flag:
                 self.training_view_function()
             print(f'\r[iteration count : {iteration_count:6d}] loss => {loss:.4f}', end='')
-            # if iteration_count == self.iterations:
-            if iteration_count % 2000 == 0 and iteration_count > int(self.iterations * 0.25):
+            if iteration_count > 10000 and iteration_count % 2000 == 0:
                 print()
                 val_pck = self.calculate_pck(dataset='validation')
                 if val_pck > max_val_pck:
