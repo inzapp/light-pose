@@ -260,7 +260,7 @@ class HumanPoseEstimator:
             if self.training_view_flag:
                 self.training_view_function()
             print(f'\r[iteration count : {iteration_count:6d}] loss => {loss:.4f}', end='')
-            if iteration_count > 10000 and iteration_count % 2000 == 0:
+            if iteration_count >= 10000 and iteration_count % 2000 == 0:
                 print()
                 val_pck = self.calculate_pck(dataset='validation')
                 if val_pck > max_val_pck:
@@ -286,6 +286,26 @@ class HumanPoseEstimator:
             key = cv2.waitKey(0)
             if key == 27:
                 break
+
+    def predict_video(self, video_path, fps=15, size=(256, 512)):
+        cap = cv2.VideoCapture(video_path)
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        cnt = 0
+        while True:
+            is_frame_exist, img = cap.read()
+            if not is_frame_exist:
+                break
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)  # rb swap
+            img = DataGenerator.resize(img, size)
+            img = self.predict(img)
+            cv2.imshow('img', img)
+            key = cv2.waitKey(int(1 / float(fps) * 1000))
+            if key == 27:
+                cap.release()
+                return
+            cnt += 1
+            print(f'predict {cnt} frames...')
+        cap.release()
 
     @tf.function
     def graph_forward(self, model, x):
