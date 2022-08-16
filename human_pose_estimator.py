@@ -211,7 +211,7 @@ class HumanPoseEstimator:
             loss = confidence_loss + regression_loss
         gradients = tape.gradient(loss, model.trainable_variables)
         optimizer.apply_gradients(zip(gradients, model.trainable_variables))
-        return loss
+        return loss, confidence_loss, regression_loss
 
     def compute_gradient_2d(self, model, optimizer, x, y_true, limb_size):
         def focal_loss(y_true, y_pred, alpha=0.25, gamma=2.0):
@@ -237,7 +237,20 @@ class HumanPoseEstimator:
             loss = confidence_loss + classification_loss + regression_loss
         gradients = tape.gradient(loss, model.trainable_variables)
         optimizer.apply_gradients(zip(gradients, model.trainable_variables))
-        return loss
+        return loss, confidence_loss, regression_loss, classification_loss
+
+    def build_loss_str(self, iteration_count, losses):
+        classification_loss = -1.0
+        if self.output_tensor_dimension == 2:
+            total_loss, confidence_loss, regression_loss, classification_loss = losses
+        else:
+            total_loss, confidence_loss, regression_loss = losses
+        loss_str = f'[iteration_count : {iteration_count:6d}] total_loss => {total_loss:.4f}'
+        loss_str += f', confidence_loss : {confidence_loss:.4f}'
+        loss_str += f', regression_loss : {regression_loss:.4f}'
+        if classification_loss != -1.0:
+            loss_str += f', classification_loss : {classification_loss:.4f}'
+        return loss_str
 
     def fit(self):
         optimizer = tf.keras.optimizers.SGD(lr=self.lr, momentum=self.momentum, nesterov=True)
@@ -255,11 +268,11 @@ class HumanPoseEstimator:
             compute_gradient = tf.function(self.compute_gradient_2d)
         for x, y_true in self.train_data_generator.flow():
             self.lr_scheduler.schedule_step_decay(optimizer, iteration_count)
-            loss = compute_gradient(self.model, optimizer, x, y_true, self.limb_size)
+            losses = compute_gradient(self.model, optimizer, x, y_true, self.limb_size)
             iteration_count += 1
             if self.training_view_flag:
                 self.training_view_function()
-            print(f'\r[iteration count : {iteration_count:6d}] loss => {loss:.4f}', end='')
+            print(self.build_loss_str(iteration_count, losses))
             if iteration_count >= 10000 and iteration_count % 2000 == 0:
                 print()
                 val_pck = self.calculate_pck(dataset='validation')
