@@ -227,17 +227,23 @@ class HumanPoseEstimator:
             y_pred = model(x, training=True)
             confidence_true = y_true[:, :, :, 0]
             confidence_pred = y_pred[:, :, :, 0]
-            confidence_loss = tf.reduce_sum(tf.reduce_mean(focal_loss(confidence_true, confidence_pred), axis=0))
+            bce = tf.keras.backend.binary_crossentropy
+            # confidence_loss = tf.reduce_sum(tf.reduce_mean(focal_loss(confidence_true, confidence_pred), axis=0))
+            confidence_loss = tf.reduce_sum(tf.reduce_mean(bce(confidence_true, confidence_pred), axis=0))
+            confidence_sse = tf.reduce_sum(tf.reduce_mean(tf.square(confidence_true - confidence_pred), axis=0))
             regression_true = y_true[:, :, :, 1:3]
             regression_pred = y_pred[:, :, :, 1:3]
-            regression_loss = tf.reduce_sum(tf.reduce_mean(tf.reduce_sum(tf.square(regression_true - regression_pred), axis=-1) * confidence_true, axis=0))
+            regression_loss = tf.reduce_sum(tf.reduce_mean(tf.reduce_sum(bce(regression_true, regression_pred), axis=-1) * confidence_true, axis=0))
+            regression_sse = tf.reduce_sum(tf.reduce_mean(tf.reduce_sum(tf.square(regression_true - regression_pred), axis=-1) * confidence_true, axis=0))
             class_true = y_true[:, :, :, 3:]
             class_pred = y_pred[:, :, :, 3:]
-            classification_loss = tf.reduce_sum(tf.reduce_mean(tf.reduce_sum(K.binary_crossentropy(class_true, class_pred), axis=-1) * confidence_true, axis=0))
+            classification_loss = tf.reduce_sum(tf.reduce_mean(tf.reduce_sum(bce(class_true, class_pred), axis=-1) * confidence_true, axis=0))
+            classification_sse = tf.reduce_sum(tf.reduce_mean(tf.reduce_sum(tf.square(class_true - class_pred), axis=-1) * confidence_true, axis=0))
             loss = confidence_loss + classification_loss + regression_loss
+            total_sse = confidence_sse + classification_sse + regression_sse
         gradients = tape.gradient(loss, model.trainable_variables)
         optimizer.apply_gradients(zip(gradients, model.trainable_variables))
-        return loss, confidence_loss, regression_loss, classification_loss
+        return total_sse, confidence_sse, regression_sse, classification_sse
 
     def build_loss_str(self, iteration_count, losses):
         classification_loss = -1.0
