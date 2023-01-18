@@ -72,7 +72,7 @@ class HumanPoseEstimator:
             pretrained_model_path='',
             validation_image_path='',
             output_tensor_dimension=2,
-            confidence_threshold=0.25,
+            confidence_threshold=0.2,
             validation_split=0.2):
         self.train_image_path = train_image_path
         self.validation_image_path = validation_image_path
@@ -205,33 +205,33 @@ class HumanPoseEstimator:
         print(f'{dataset} data PCK@{int(distance_threshold * 100)} : {pck:.4f}')
         return pck
 
-    def compute_gradient_1d(self, model, optimizer, binary_loss_function, regression_loss_function, x, y_true, limb_size):
+    def compute_gradient_1d(self, model, optimizer, loss_function, x, y_true, limb_size):
         with tf.GradientTape() as tape:
             y_pred = model(x, training=True)
             batch_size = tf.cast(tf.shape(y_true)[0], dtype=tf.dtypes.int32)
             y_true = tf.reshape(y_true, (batch_size, limb_size, 3))
             y_pred = tf.reshape(y_pred, (batch_size, limb_size, 3))
             batch_size_f = tf.cast(batch_size, dtype=y_pred.dtype)
-            confidence_loss = tf.reduce_sum(binary_loss_function(y_true[:, :, 0], y_pred[:, :, 0])) / batch_size_f
-            regression_loss = tf.reduce_sum(tf.reduce_sum(regression_loss_function(y_true[:, :, 1:], y_pred[:, :, 1:]), axis=-1) * y_true[:, :, 0]) / batch_size_f
+            confidence_loss = tf.reduce_sum(loss_function(y_true[:, :, 0], y_pred[:, :, 0])) / batch_size_f
+            regression_loss = tf.reduce_sum(tf.reduce_sum(tf.square(y_true[:, :, 1:] - y_pred[:, :, 1:]), axis=-1) * y_true[:, :, 0]) / batch_size_f
             loss = confidence_loss + regression_loss
         gradients = tape.gradient(loss, model.trainable_variables)
         optimizer.apply_gradients(zip(gradients, model.trainable_variables))
         return loss, confidence_loss, regression_loss
 
-    def compute_gradient_2d(self, model, optimizer, binary_loss_function, regression_loss_function, x, y_true, limb_size):
+    def compute_gradient_2d(self, model, optimizer, loss_function, x, y_true, limb_size):
         with tf.GradientTape() as tape:
             y_pred = model(x, training=True)
             batch_size_f = tf.cast(tf.shape(y_true)[0], dtype=y_pred.dtype)
             confidence_true = y_true[:, :, :, 0]
             confidence_pred = y_pred[:, :, :, 0]
-            confidence_loss = tf.reduce_sum(binary_loss_function(confidence_true, confidence_pred)) / batch_size_f
+            confidence_loss = tf.reduce_sum(loss_function(confidence_true, confidence_pred)) / batch_size_f
             regression_true = y_true[:, :, :, 1:3]
             regression_pred = y_pred[:, :, :, 1:3]
-            regression_loss = tf.reduce_sum(tf.reduce_sum(regression_loss_function(regression_true, regression_pred), axis=-1) * confidence_true) / batch_size_f
+            regression_loss = tf.reduce_sum(tf.reduce_sum(tf.square(regression_true - regression_pred), axis=-1) * confidence_true) / batch_size_f
             class_true = y_true[:, :, :, 3:]
             class_pred = y_pred[:, :, :, 3:]
-            classification_loss = tf.reduce_sum(tf.reduce_sum(binary_loss_function(class_true, class_pred), axis=-1) * confidence_true) / batch_size_f
+            classification_loss = tf.reduce_sum(tf.reduce_sum(loss_function(class_true, class_pred), axis=-1) * confidence_true) / batch_size_f
             loss = confidence_loss + classification_loss + regression_loss
         gradients = tape.gradient(loss, model.trainable_variables)
         optimizer.apply_gradients(zip(gradients, model.trainable_variables))
@@ -243,11 +243,11 @@ class HumanPoseEstimator:
             total_loss, confidence_loss, regression_loss, classification_loss = losses
         else:
             total_loss, confidence_loss, regression_loss = losses
-        loss_str = f'[iteration_count : {iteration_count:6d}] total_loss => {total_loss:.4f}'
-        loss_str += f', confidence_loss : {confidence_loss:.4f}'
-        loss_str += f', regression_loss : {regression_loss:.4f}'
+        loss_str = f'[iteration_count : {iteration_count:6d}] total_loss => {total_loss:>8.4f}'
+        loss_str += f', confidence_loss : {confidence_loss:>8.4f}'
+        loss_str += f', regression_loss : {regression_loss:>8.4f}'
         if classification_loss != -1.0:
-            loss_str += f', classification_loss : {classification_loss:.4f}'
+            loss_str += f', classification_loss : {classification_loss:>8.4f}'
         return loss_str
 
     def fit(self):
@@ -259,16 +259,16 @@ class HumanPoseEstimator:
         iteration_count = 0
         max_val_pck = 0.0
         os.makedirs('checkpoints', exist_ok=True)
-        binary_loss_function = AbsoluteLogarithmicError(alpha=0.25, gamma=2.0)
-        regression_loss_function = AbsoluteLogarithmicError(gamma=0.0)
+        loss_function = AbsoluteLogarithmicError(alpha=0.25, gamma=2.0)
         optimizer = tf.keras.optimizers.Adam(learning_rate=self.lr, beta_1=self.momentum)
+        constant_limb_size = tf.constant(self.limb_size)
         if self.output_tensor_dimension == 1:
             compute_gradient = tf.function(self.compute_gradient_1d)
         elif self.output_tensor_dimension == 2:
             compute_gradient = tf.function(self.compute_gradient_2d)
         for x, y_true in self.train_data_generator.flow():
             self.lr_scheduler.update(optimizer, iteration_count)
-            losses = compute_gradient(self.model, optimizer, binary_loss_function, regression_loss_function, x, y_true, self.limb_size)
+            losses = compute_gradient(self.model, optimizer, loss_function, x, y_true, constant_limb_size)
             iteration_count += 1
             if self.training_view_flag:
                 self.training_view_function()
