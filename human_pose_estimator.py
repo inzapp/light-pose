@@ -61,11 +61,13 @@ class HumanPoseEstimator:
             train_image_path,
             input_shape,
             lr,
+            warm_up,
             momentum,
             batch_size,
             iterations,
             decay=5e-4,
             training_view=False,
+            checkpoint_interval=2000,
             pretrained_model_path='',
             validation_image_path='',
             output_tensor_dimension=2,
@@ -76,10 +78,12 @@ class HumanPoseEstimator:
         self.validation_split = validation_split
         self.input_shape = input_shape
         self.lr = lr
+        self.warm_up = warm_up
         self.momentum = momentum
         self.batch_size = batch_size
         self.iterations = iterations
         self.training_view_flag = training_view
+        self.checkpoint_interval = checkpoint_interval
         self.output_tensor_dimension = output_tensor_dimension
         self.confidence_threshold = confidence_threshold
         self.img_type = cv2.IMREAD_COLOR
@@ -123,7 +127,7 @@ class HumanPoseEstimator:
             output_tensor_dimension=self.output_tensor_dimension,
             batch_size=self.batch_size,
             limb_size=self.limb_size)
-        self.lr_scheduler = LRScheduler(iterations=self.iterations, lr=self.lr)
+        self.lr_scheduler = LRScheduler(iterations=self.iterations, lr=self.lr, warm_up=self.warm_up, policy='step')
 
     @staticmethod
     def init_image_paths(image_path, validation_split=0.0):
@@ -273,13 +277,14 @@ class HumanPoseEstimator:
         elif self.output_tensor_dimension == 2:
             compute_gradient = tf.function(self.compute_gradient_2d)
         for x, y_true in self.train_data_generator.flow():
-            self.lr_scheduler.schedule_step_decay(optimizer, iteration_count)
+            self.lr_scheduler.update(optimizer, iteration_count)
             losses = compute_gradient(self.model, optimizer, x, y_true, self.limb_size)
             iteration_count += 1
             if self.training_view_flag:
                 self.training_view_function()
             print(self.build_loss_str(iteration_count, losses))
-            if iteration_count >= 10000 and iteration_count % 2000 == 0:
+            warm_up_end = iteration_count >= int(self.iterations * self.warm_up)
+            if warm_up_end and iteration_count % self.checkpoint_interval == 0:
                 print()
                 val_pck = self.calculate_pck(dataset='validation')
                 if val_pck > max_val_pck:
@@ -426,3 +431,4 @@ class HumanPoseEstimator:
         cv2.imshow('train', train_image)
         cv2.imshow('validation', validation_image)
         cv2.waitKey(1)
+

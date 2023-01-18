@@ -25,6 +25,9 @@ if __name__ == '__main__':
         validation_image_path=r'/train_data/pose/validation',
         input_shape=(96, 96, 1),
         lr=0.001,
+        decay=5e-4,
+        warm_up=0.5,
         momentum=0.9,
         batch_size=32,
-        iterations=300000).fit()
+        iterations=200000,
+        checkpoint_interval=2000).fit()
