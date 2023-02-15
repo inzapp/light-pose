@@ -225,9 +225,33 @@ class HumanPoseEstimator:
             confidence_true = y_true[:, :, :, 0]
             confidence_pred = y_pred[:, :, :, 0]
             confidence_loss = tf.reduce_sum(loss_function(confidence_true, confidence_pred)) / batch_size_f
-            regression_true = y_true[:, :, :, 1:3]
-            regression_pred = y_pred[:, :, :, 1:3]
-            regression_loss = tf.reduce_sum(tf.reduce_sum(tf.square(regression_true - regression_pred), axis=-1) * confidence_true) / batch_size_f
+
+            cx_true = y_true[:, :, :, 1]
+            cy_true = y_true[:, :, :, 2]
+
+            y_true_shape = tf.cast(tf.shape(y_true), y_pred.dtype)
+            grid_height, grid_width = y_true_shape[1], y_true_shape[2]
+
+            x_range = tf.range(grid_width, dtype=y_pred.dtype)
+            x_offset = tf.broadcast_to(x_range, shape=tf.shape(cx_true))
+
+            y_range = tf.range(grid_height, dtype=y_pred.dtype)
+            y_range = tf.reshape(y_range, shape=(1, grid_height, 1))
+            y_offset = tf.broadcast_to(y_range, shape=tf.shape(cy_true))
+
+            cx_true = x_offset + (cx_true * 1.0 / grid_width)
+            cy_true = y_offset + (cy_true * 1.0 / grid_height)
+
+            cx_pred = y_pred[:, :, :, 1]
+            cy_pred = y_pred[:, :, :, 2]
+
+            cx_pred = x_offset + (cx_pred * 1.0 / grid_width)
+            cy_pred = y_offset + (cy_pred * 1.0 / grid_height)
+
+            cx_loss = tf.square(cx_true - cx_pred)
+            cy_loss = tf.square(cy_true - cy_pred)
+            regression_loss = tf.reduce_sum((cx_loss + cy_loss) * confidence_true) / batch_size_f
+
             class_true = y_true[:, :, :, 3:]
             class_pred = y_pred[:, :, :, 3:]
             classification_loss = tf.reduce_sum(tf.reduce_sum(loss_function(class_true, class_pred), axis=-1) * confidence_true) / batch_size_f
