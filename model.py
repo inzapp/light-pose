@@ -32,46 +32,45 @@ class Model:
     def build(self, output_tensor_dimension):
         input_layer = tf.keras.layers.Input(shape=self.input_shape)
         x = input_layer
-        x = self.conv(x, filters=16, kernel_size=3, kernel_initializer='he_normal', activation='relu')
+        x = self.conv(x, filters=16, kernel_size=3, activation='relu')
         x = self.max_pool(x)
 
-        x = self.conv(x, filters=32, kernel_size=3, kernel_initializer='he_normal', activation='relu')
-        x = self.conv(x, filters=32, kernel_size=3, kernel_initializer='he_normal', activation='relu')
+        x = self.conv(x, filters=32, kernel_size=3, activation='relu')
+        x = self.conv(x, filters=32, kernel_size=3, activation='relu')
         x = self.max_pool(x)
 
-        x = self.conv(x, filters=64, kernel_size=3, kernel_initializer='he_normal', activation='relu')
-        x = self.conv(x, filters=64, kernel_size=3, kernel_initializer='he_normal', activation='relu')
+        x = self.conv(x, filters=64, kernel_size=3, activation='relu')
+        x = self.conv(x, filters=64, kernel_size=3, activation='relu')
         x = self.spatial_attention(x)
         x = self.max_pool(x)
 
-        x = self.conv(x, filters=128, kernel_size=3, kernel_initializer='he_normal', activation='relu')
-        x = self.conv(x, filters=128, kernel_size=3, kernel_initializer='he_normal', activation='relu')
+        x = self.conv(x, filters=128, kernel_size=3, activation='relu')
+        x = self.conv(x, filters=128, kernel_size=3, activation='relu')
         f0 = x
         x = self.max_pool(x)
 
-        x = self.conv(x, filters=256, kernel_size=3, kernel_initializer='he_normal', activation='relu')
-        x = self.conv(x, filters=256, kernel_size=3, kernel_initializer='he_normal', activation='relu')
+        x = self.conv(x, filters=256, kernel_size=3, activation='relu')
+        x = self.conv(x, filters=256, kernel_size=3, activation='relu')
         f1 = x
         x = self.max_pool(x)
 
-        x = self.conv(x, filters=256, kernel_size=3, kernel_initializer='he_normal', activation='relu')
-        x = self.conv(x, filters=256, kernel_size=3, kernel_initializer='he_normal', activation='relu')
+        x = self.conv(x, filters=256, kernel_size=3, activation='relu')
+        x = self.conv(x, filters=256, kernel_size=3, activation='relu')
         f2 = x
 
-        x = self.feature_pyramid_network([f0, f1, f2], [128, 128, 256], kernel_size=3, kernel_initializer='he_normal', activation='relu')
+        x = self.feature_pyramid_network([f0, f1, f2], [128, 128, 256], kernel_size=3, activation='relu')
         if output_tensor_dimension == 1:
-            x = self.conv(x, filters=self.output_size, kernel_size=1, kernel_initializer='he_normal', activation='relu')
+            x = self.conv(x, filters=self.output_size, kernel_size=1, activation='relu')
             x = tf.keras.layers.Flatten()(x)
-            x = self.dense(x, units=self.output_size, kernel_initializer='glorot_normal', activation='sigmoid')
+            x = self.dense(x, units=self.output_size, activation='sigmoid')
         elif output_tensor_dimension == 2:
-            x = self.conv(x, filters=self.output_size, kernel_size=1, kernel_initializer='glorot_normal', activation='sigmoid')
+            x = self.conv(x, filters=self.output_size, kernel_size=1, activation='sigmoid')
         return tf.keras.models.Model(input_layer, x)
 
-    def conv(self, x, filters, kernel_size, kernel_initializer, activation, bn=False):
+    def conv(self, x, filters, kernel_size, activation, bn=False):
         x = tf.keras.layers.Conv2D(
             filters=filters,
             kernel_size=kernel_size,
-            kernel_initializer=kernel_initializer,
             kernel_regularizer=tf.keras.regularizers.l2(l2=self.decay) if self.decay > 0.0 else None,
             use_bias=False if bn else True,
             padding='same')(x)
@@ -80,10 +79,9 @@ class Model:
         x = self.activation(x, activation=activation)
         return x
 
-    def dense(self, x, units, kernel_initializer, activation, bn=False):
+    def dense(self, x, units, activation, bn=False):
         x = tf.keras.layers.Dense(
             units=units,
-            kernel_initializer=kernel_initializer,
             use_bias=False if bn else True)(x)
         if bn:
             x = self.bn(x)
@@ -103,12 +101,11 @@ class Model:
         squeezed_filters = input_filters // 16
         if squeezed_filters <= 2:
             squeezed_filters = 2
-        x = self.conv(x, filters=squeezed_filters, kernel_size=1, kernel_initializer='he_normal', activation='relu')
-        x = self.conv(x, filters=squeezed_filters, kernel_size=7, kernel_initializer='he_normal', activation='relu')
+        x = self.conv(x, filters=squeezed_filters, kernel_size=1, activation='relu')
+        x = self.conv(x, filters=squeezed_filters, kernel_size=7, activation='relu')
         x = tf.keras.layers.Conv2D(
             filters=input_filters,
             kernel_size=1,
-            kernel_initializer='glorot_normal',
             kernel_regularizer=tf.keras.regularizers.l2(l2=self.decay) if self.decay > 0.0 else None,
             bias_initializer='zeros',
             use_bias=False,
@@ -116,21 +113,21 @@ class Model:
         x = self.activation(x, activation='sigmoid')
         return self.multiply([input_layer, x])
 
-    def feature_pyramid_network(self, layers, filters, kernel_size, kernel_initializer, activation, bn=False, return_layers=False):
+    def feature_pyramid_network(self, layers, filters, kernel_size, activation, bn=False, return_layers=False):
         layers = list(reversed(layers))
         if type(filters) == list:
             filters = list(reversed(filters))
         for i in range(len(layers)):
-            layers[i] = self.conv(layers[i], filters=filters if type(filters) == int else filters[i], kernel_size=1, kernel_initializer=kernel_initializer, bn=bn, activation=activation)
+            layers[i] = self.conv(layers[i], filters=filters if type(filters) == int else filters[i], kernel_size=1, bn=bn, activation=activation)
         ret = []
         if return_layers:
             ret.append(layers[0])
         for i in range(len(layers) - 1):
             x = tf.keras.layers.UpSampling2D()(layers[i] if i == 0 else x)
             if type(filters) == list and filters[i] != filters[i + 1]:
-                x = self.conv(x, filters=filters[i + 1], kernel_size=1, kernel_initializer=kernel_initializer, bn=bn, activation=activation)
+                x = self.conv(x, filters=filters[i + 1], kernel_size=1, bn=bn, activation=activation)
             x = self.add([x, layers[i + 1]])
-            x = self.conv(x, filters=filters if type(filters) == int else filters[i + 1], kernel_size=3, kernel_initializer=kernel_initializer, bn=bn, activation=activation)
+            x = self.conv(x, filters=filters if type(filters) == int else filters[i + 1], kernel_size=3, bn=bn, activation=activation)
             if return_layers:
                 ret.append(x)
         return list(reversed(ret)) if return_layers else x
@@ -146,3 +143,4 @@ class Model:
 
     def multiply(self, layers):
         return tf.keras.layers.Multiply()(layers)
+
