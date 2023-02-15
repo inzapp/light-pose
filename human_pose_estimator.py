@@ -57,23 +57,22 @@ class Limb(Enum):
 
 
 class HumanPoseEstimator:
-    def __init__(
-            self,
-            train_image_path,
-            input_shape,
-            lr,
-            warm_up,
-            momentum,
-            batch_size,
-            iterations,
-            decay=5e-4,
-            training_view=False,
-            checkpoint_interval=2000,
-            pretrained_model_path='',
-            validation_image_path='',
-            output_tensor_dimension=2,
-            confidence_threshold=0.2,
-            validation_split=0.2):
+    def __init__(self,
+                 train_image_path,
+                 input_shape,
+                 lr,
+                 warm_up,
+                 momentum,
+                 batch_size,
+                 iterations,
+                 decay=5e-4,
+                 training_view=False,
+                 checkpoint_interval=2000,
+                 pretrained_model_path='',
+                 validation_image_path='',
+                 output_tensor_dimension=2,
+                 confidence_threshold=0.05,
+                 validation_split=0.2):
         self.train_image_path = train_image_path
         self.validation_image_path = validation_image_path
         self.validation_split = validation_split

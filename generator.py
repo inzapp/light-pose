@@ -22,6 +22,7 @@ from concurrent.futures.thread import ThreadPoolExecutor
 
 import numpy as np
 import tensorflow as tf
+import albumentations as A
 
 
 class DataGenerator:
@@ -34,6 +35,10 @@ class DataGenerator:
         self.limb_size = limb_size
         self.image_index = 0
         self.pool = ThreadPoolExecutor(8)
+        self.transform = A.Compose([
+            A.RandomBrightnessContrast(p=0.5, brightness_limit=0.2, contrast_limit=0.3),
+            A.GaussianBlur(p=0.5, blur_limit=(5, 5))
+        ])
 
     def flow(self):
         while True:
@@ -45,7 +50,7 @@ class DataGenerator:
             for f in fs:
                 img, path = f.result()
                 img = self.resize(img, (self.input_shape[1], self.input_shape[0]))
-                img = self.random_blur(img)
+                img = self.transform(image=img)['image']
                 x = np.asarray(img).reshape(self.input_shape).astype('float32') / 255.0
                 batch_x.append(x)
 
@@ -83,12 +88,6 @@ class DataGenerator:
             self.image_index = 0
         return path
 
-    def random_blur(self, img):
-        if np.random.uniform() > 0.5:
-            kernel_size = np.random.choice([3, 5])
-            img = cv2.GaussianBlur(img, (kernel_size, kernel_size), 0)
-        return img
-
     @staticmethod
     def load_img(path, color=True):
         img = cv2.imdecode(np.fromfile(path, dtype=np.uint8), cv2.IMREAD_COLOR if color else cv2.IMREAD_GRAYSCALE)
@@ -102,3 +101,4 @@ class DataGenerator:
             return cv2.resize(img, size, interpolation=cv2.INTER_LINEAR)
         else:
             return cv2.resize(img, size, interpolation=cv2.INTER_AREA)
+
