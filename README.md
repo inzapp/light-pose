@@ -24,7 +24,7 @@ In addition to basic augmentation, rotation augmentation can be used to improve 
 
 The model is the same image, but by further learning the rotated image, overfitting is avoided and more generalized
 
-<img src="/md/augmentation.jpg" width="600"><br>
+<img src="/md/augmentation.jpg" width="800"><br>
 
 We also provide scripts that can perform this augmentation simply
 
