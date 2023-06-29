@@ -281,7 +281,7 @@ class HumanPoseEstimator:
         print(f'validate on {len(self.validation_image_paths)} samples')
         iteration_count = 0
         max_val_pck = 0.0
-        os.makedirs('checkpoints', exist_ok=True)
+        os.makedirs('checkpoint', exist_ok=True)
         loss_function = AbsoluteLogarithmicError(alpha=0.75, gamma=2.0)
         optimizer = tf.keras.optimizers.Adam(learning_rate=self.lr, beta_1=self.momentum)
         constant_limb_size = tf.constant(self.limb_size)
@@ -302,10 +302,10 @@ class HumanPoseEstimator:
                 val_pck = self.calculate_pck(dataset='validation')
                 if val_pck > max_val_pck:
                     max_val_pck = val_pck
-                    self.model.save(f'checkpoints/best_model_{iteration_count}_iter_{val_pck:.4f}_val_PCK.h5', include_optimizer=False)
+                    self.model.save(f'checkpoint/best_model_{iteration_count}_iter_{val_pck:.4f}_val_PCK.h5', include_optimizer=False)
                     print('best val PCK model saved')
                 else:
-                    self.model.save(f'checkpoints/model_{iteration_count}_iter_{val_pck:.4f}_val_PCK.h5', include_optimizer=False)
+                    self.model.save(f'checkpoint/model_{iteration_count}_iter_{val_pck:.4f}_val_PCK.h5', include_optimizer=False)
                 print()
             if iteration_count == self.iterations:
                 print('\ntrain end successfully')
