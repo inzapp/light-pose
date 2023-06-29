@@ -282,7 +282,7 @@ class HumanPoseEstimator:
         iteration_count = 0
         max_val_pck = 0.0
         os.makedirs('checkpoints', exist_ok=True)
-        loss_function = AbsoluteLogarithmicError(alpha=0.25, gamma=2.0)
+        loss_function = AbsoluteLogarithmicError(alpha=0.75, gamma=2.0)
         optimizer = tf.keras.optimizers.Adam(learning_rate=self.lr, beta_1=self.momentum)
         constant_limb_size = tf.constant(self.limb_size)
         if self.output_tensor_dimension == 1:
