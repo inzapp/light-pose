@@ -1,6 +1,6 @@
-# Human Pose Estimator
+# LightPose
 
-Human Pose Estimator is a top-down key point detection model that inspired by the yolo object detection model
+LightPose is a top-down key point detection model that inspired by the yolo object detection model
 
 This is a one-stage model in which both feature extraction and key point detection are performed through a simple convolution network
 
