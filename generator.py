@@ -1,7 +1,7 @@
 """
 Authors : inzapp
 
-Github url : https://github.com/inzapp/human-pose-estimator
+Github url : https://github.com/inzapp/light-pose
 
 Copyright 2022 inzapp Authors. All Rights Reserved.
 

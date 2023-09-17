@@ -1,7 +1,7 @@
 """
 Authors : inzapp
 
-Github url : https://github.com/inzapp/human-pose-estimator
+Github url : https://github.com/inzapp/light-pose
 
 Copyright 2022 inzapp Authors. All Rights Reserved.
 
@@ -17,10 +17,10 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 """
-from human_pose_estimator import HumanPoseEstimator
+from light_pose import LightPose
 
 if __name__ == '__main__':
-    HumanPoseEstimator(
+    LightPose(
         train_image_path=r'/train_data/pose/train',
         validation_image_path=r'/train_data/pose/validation',
         input_shape=(96, 96, 1),

@@ -1,7 +1,7 @@
 """
 Authors : inzapp
 
-Github url : https://github.com/inzapp/human-pose-estimator
+Github url : https://github.com/inzapp/light-pose
 
 Copyright 2021 inzapp Authors. All Rights Reserved.
 
@@ -56,7 +56,7 @@ class Limb(Enum):
     LEFT_ANKLE = auto()
 
 
-class HumanPoseEstimator:
+class LightPose:
     def __init__(self,
                  train_image_path,
                  input_shape,
